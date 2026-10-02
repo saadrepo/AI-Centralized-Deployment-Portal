@@ -1,0 +1,8 @@
+@model DockerContainerForm
+@{ ViewData["Title"] = "Review Docker container"; }
+<div class="page-heading"><div><div class="eyebrow">FINAL REVIEW</div><h1>Ready to build and run?</h1><p>Confirm the source and port mapping.</p></div></div>
+<div class="stepper"><span>1 <b>Configure</b></span><i></i><span class="current">2 <b>Review &amp; confirm</b></span><i></i><span>3 <b>Result</b></span></div>
+<section class="panel max-form"><div class="panel-heading"><h2>@Model.ContainerName</h2></div><dl class="detail-grid"><dt>Docker host</dt><dd>Dashboard host</dd><dt>Source folder</dt><dd class="font-monospace">@Model.SourcePath</dd><dt>Dockerfile</dt><dd class="font-monospace">@System.IO.Path.Combine(Model.SourcePath, "Dockerfile")</dd><dt>Container name</dt><dd>@Model.ContainerName</dd><dt>Port mapping</dt><dd>@Model.HostPort → @Model.ContainerPort</dd></dl>
+    <div class="form-body pt-0"><div class="alert alert-info">This will build a new image and create a new container. The build may take several minutes.</div>
+    <form asp-action="Run" method="post" data-busy><input type="hidden" asp-for="SourcePath" /><input type="hidden" asp-for="ContainerName" /><input type="hidden" asp-for="HostPort" /><input type="hidden" asp-for="ContainerPort" /><input type="hidden" asp-for="ConfirmationToken" /><a class="btn btn-light" asp-action="Index">Edit settings</a> <button class="btn btn-primary" type="submit">Build image and start container</button></form></div>
+</section>

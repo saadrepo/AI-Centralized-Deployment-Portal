@@ -1,0 +1,4 @@
+@model string
+@{ ViewData["Title"] = "Docker logs"; var container = (DockerContainerInfo)ViewBag.Container; var context = (string)ViewBag.Context; }
+<div class="page-heading"><div><a class="back-link" asp-action="Index" asp-route-context="@context">← Docker Deployments</a><h1>@container.Name logs</h1><p>Last 200 lines from @context.</p></div><a class="btn btn-outline-secondary" asp-action="Logs" asp-route-context="@context" asp-route-id="@container.Id">Refresh</a></div>
+<section class="panel"><div class="form-body"><pre class="soft-note mb-0" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:70vh;overflow:auto">@(string.IsNullOrEmpty(Model) ? "No logs available." : Model)</pre></div></section>

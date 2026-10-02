@@ -1,0 +1,51 @@
+@model IReadOnlyList<DeploymentPortal.ViewModels.Tfs.TfsPipelineViewModel>
+@{ ViewData["Title"] = "TFS"; var search = ViewData["Search"] as string; }
+<div class="page-heading"><div><div class="eyebrow fs-5 mb-2">TFS</div><h1 class="d-flex flex-wrap align-items-center gap-3">Pipelines <span class="count-pill fs-5 px-3 py-2">@Model.Count shown</span></h1><p class="fs-6">Build definitions from the configured TFS project.</p></div></div>
+<div class="mb-3"><a class="btn btn-outline-primary" asp-controller="TfsReleases" asp-action="Index">CD Releases</a></div>
+<form id="pipeline-search-form" data-tfs-search method="get" asp-action="Index" class="d-flex flex-wrap align-items-center gap-2 mb-3" role="search">
+    <label for="pipeline-search" class="visually-hidden">Search pipelines by name prefix</label>
+    <input id="pipeline-search" name="search" value="@search" type="search" class="form-control flex-grow-1" style="width: min(100%, 24rem); max-width: 32rem" placeholder="Search pipelines by name..." aria-describedby="pipeline-search-help" />
+    <button type="submit" class="btn btn-primary">Search</button>
+    <a id="pipeline-search-clear" class="btn btn-outline-secondary" asp-action="Index" hidden="@(string.IsNullOrEmpty(search))">Clear</a>
+</form>
+<p id="pipeline-search-help">Search by the beginning of a pipeline name. Up to 50 results are shown; refine your search to find more pipelines.</p>
+<p id="pipeline-search-status" role="status" aria-live="polite"></p>
+<div id="pipeline-search-results">
+@if (ViewData["TfsError"] is string error)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+else
+{
+    <section class="panel">
+        <div class="panel-heading"><h2>Build definitions</h2></div>
+        <p class="px-4 pt-3">Showing @Model.Count @(string.IsNullOrEmpty(search) ? "pipelines" : "matching pipelines"). This is the displayed count, not the project total.</p>
+        <div class="table-responsive">
+            <table id="tfs-table" class="table align-middle">
+                <thead><tr><th scope="col">Id</th><th scope="col">Name</th><th scope="col">Path</th><th scope="col">Revision</th><th scope="col">Queue status</th><th scope="col">Action</th></tr></thead>
+                <tbody>
+                @foreach (var pipeline in Model)
+                {
+                    <tr><td>@pipeline.Id</td><td><a asp-action="Details" asp-route-id="@pipeline.Id"><strong>@pipeline.Name</strong></a></td><td>@pipeline.Path</td><td>@pipeline.Revision</td><td>@pipeline.QueueStatus</td><td>
+                        @if (pipeline.CanRun)
+                        {
+                            <form asp-action="ReviewCiBuild" method="post" data-busy>
+                                <input type="hidden" name="id" value="@pipeline.Id" />
+                                <button type="submit" class="btn btn-primary">CI Build</button>
+                            </form>
+                        }
+                    </td></tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.Count == 0)
+        {
+            <div class="empty-state"><h3>No pipelines found</h3><p>No build definitions were returned for this project.</p></div>
+        }
+    </section>
+}
+</div>
+@section Scripts {
+    <script src="~/js/tfs-search.js" asp-append-version="true"></script>
+}

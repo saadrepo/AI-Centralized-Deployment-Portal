@@ -1,0 +1,22 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsLogPageViewModel
+@{ ViewData["Title"] = "Build log"; }
+<div class="page-heading"><div><div class="eyebrow">TFS</div><h1>Build @(Model.BuildNumber ?? Model.BuildId.ToString()) / Log @Model.LogId</h1><p>Total lines: @(Model.LineCount?.ToString() ?? "Not available"). Log content loads only when requested.</p></div><a class="btn btn-primary" asp-action="BuildDetails" asp-route-id="@Model.BuildId">Back to Build</a></div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+else
+{
+    <section class="panel">
+        <div class="panel-heading flex-wrap gap-2"><h2>Log content</h2><label for="log-filter" class="visually-hidden">Filter loaded lines</label><input id="log-filter" type="search" class="form-control" style="max-width: 24rem" placeholder="Filter loaded lines..." /></div>
+        <div class="p-3">
+            <p>Showing up to 1,000 lines from line @(Model.StartLine + 1). Filtering applies only to this loaded range.</p>
+            <pre id="log-content" class="font-monospace border rounded p-3" style="max-height: 65vh; overflow: auto; white-space: pre;" tabindex="0">@Model.Content</pre>
+            <p id="log-filter-status" role="status" aria-live="polite"></p>
+            <div class="d-flex flex-wrap gap-2">
+                @if (Model.StartLine > 0)
+                { <a class="btn btn-outline-secondary" asp-action="BuildLog" asp-route-id="@Model.BuildId" asp-route-logId="@Model.LogId" asp-route-startLine="@Math.Max(0, Model.StartLine - 1000)">Previous lines</a> }
+                @if (Model.HasNext || Model.LineCount is null)
+                { <a class="btn btn-outline-secondary" asp-action="BuildLog" asp-route-id="@Model.BuildId" asp-route-logId="@Model.LogId" asp-route-startLine="@(Model.StartLine + 1000)">Next lines</a> }
+            </div>
+        </div>
+    </section>
+}
+@section Scripts { <script src="~/js/tfs-log.js" asp-append-version="true"></script> }

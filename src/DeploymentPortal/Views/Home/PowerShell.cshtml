@@ -1,0 +1,9 @@
+@{ ViewData["Title"] = "PowerShell"; }
+<div class="page-heading"><div><div class="eyebrow">WINDOWS AUTOMATION</div><h1>PowerShell</h1><p>Predefined scripts behind your connection tests and IIS deployments.</p></div></div>
+<div class="row g-4">
+    <div class="col-lg-6"><section class="panel h-100"><div class="panel-heading"><h2>WinRM connection &amp; server information</h2><partial name="_Icon" model='@("terminal")' /></div><div class="form-body"><p>Test a registered server's connection and retrieve its basic operating system information.</p><dl class="detail-grid px-0"><dt>Script</dt><dd class="font-monospace">Invoke-RemoteOperation.ps1</dd><dt>Operations</dt><dd>TestConnection · GetBasicServerInfo</dd></dl><a class="btn btn-primary" asp-controller="Servers" asp-action="Index">Select server &amp; test connection</a></div></section></div>
+    <div class="col-lg-6"><section class="panel h-100"><div class="panel-heading"><h2>IIS application deployment</h2><partial name="_Icon" model='@("rocket")' /></div><div class="form-body"><p>Validate the target, back up existing files, deploy the package, restart the application pool and verify IIS state.</p><dl class="detail-grid px-0"><dt>Script</dt><dd class="font-monospace">Deploy-IISApplication.ps1</dd><dt>Recovery</dt><dd>Retained backup and rollback attempt on failure</dd></dl><a class="btn btn-primary" asp-controller="Deployments" asp-action="Create">Configure IIS deployment</a></div></section></div>
+</div>
+<section class="panel mt-4"><div class="panel-heading"><h2>Script location</h2></div><div class="form-body"><p>Both scripts are included in your project:</p><pre class="soft-note mb-0">src/DeploymentPortal/PowerShell/
+├── Invoke-RemoteOperation.ps1
+└── Deploy-IISApplication.ps1</pre><p class="form-text mt-3 mb-0">Operations use the existing server and deployment forms. Deployment requires confirmation; this page does not expose an arbitrary command console.</p></div></section>

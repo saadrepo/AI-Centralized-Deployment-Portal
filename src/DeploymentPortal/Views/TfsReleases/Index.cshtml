@@ -1,0 +1,35 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsReleasePageViewModel
+@{ ViewData["Title"] = "CD Releases"; var search = ViewData["Search"] as string; }
+<div class="page-heading"><div><div class="eyebrow fs-5 mb-2">TFS</div><h1 class="d-flex flex-wrap align-items-center gap-3">CD Releases <span class="count-pill fs-5 px-3 py-2">@Model.Definitions.Count shown</span></h1><p class="fs-6">Browse release definitions and deployment status.</p></div><a class="btn btn-outline-primary" asp-controller="Tfs" asp-action="Index">CI Pipelines</a></div>
+<form id="release-search-form" data-tfs-search data-input-id="release-search" data-results-id="release-search-results" data-status-id="release-search-status" data-clear-id="release-search-clear" method="get" asp-action="Index" class="d-flex flex-wrap align-items-center gap-2 mb-3" role="search">
+    <label for="release-search" class="visually-hidden">Search release definitions by name</label>
+    <input id="release-search" name="search" value="@search" type="search" class="form-control flex-grow-1" style="width: min(100%, 24rem); max-width: 32rem" placeholder="Search release definitions..." aria-describedby="release-search-help" />
+    <button class="btn btn-primary" type="submit">Search</button>
+    <a id="release-search-clear" class="btn btn-outline-secondary" asp-action="Index" hidden="@(string.IsNullOrEmpty(search))">Clear</a>
+</form>
+<p id="release-search-help">Search release definitions by name. Up to 50 results are shown; refine your search to find more release definitions.</p>
+<p id="release-search-status" role="status" aria-live="polite"></p>
+<div id="release-search-results">
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+else
+{
+    <section class="panel"><div class="panel-heading"><h2>Release definitions</h2></div>
+        <p class="px-4 pt-3">Showing @Model.Definitions.Count @(string.IsNullOrEmpty(search) ? "release definitions" : "matching release definitions"). This is the displayed count, not the project total.</p>
+        <div class="table-responsive"><table class="table align-middle">
+            <thead><tr><th scope="col">Definition ID</th><th scope="col">Name</th><th scope="col">Linked artifacts / CI definitions</th></tr></thead>
+            <tbody>@foreach (var definition in Model.Definitions)
+            {
+                <tr><td>@definition.Id</td><td><a asp-action="Definition" asp-route-id="@definition.Id">@definition.Name</a></td><td>
+                    @if (definition.Artifacts is { Count: > 0 })
+                    { foreach (var artifact in definition.Artifacts.Where(x => x is not null)) { <div>@(artifact.Alias ?? "-") · @(artifact.Type ?? "-") · @(artifact.Definition?.Name ?? "Not available") (ID: @(artifact.Definition?.Id ?? "-"))</div> } }
+                    else { <span>Not available</span> }
+                </td></tr>
+            }</tbody>
+        </table></div>
+        @if (Model.Definitions.Count == 0) { <div class="empty-state"><h3>No release definitions found</h3></div> }
+    </section>
+}
+</div>
+@section Scripts {
+    <script src="~/js/tfs-search.js" asp-append-version="true"></script>
+}

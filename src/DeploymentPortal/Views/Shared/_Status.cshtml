@@ -1,0 +1,3 @@
+@model string
+@{ var style = Model switch { "Online" or "Successful" => "success", "Offline" or "Failed" => "danger", "Running" => "running", _ => "neutral" }; }
+<span class="status-badge @style"><span class="status-dot"></span>@Model</span>

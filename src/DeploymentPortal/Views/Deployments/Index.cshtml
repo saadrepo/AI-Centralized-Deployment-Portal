@@ -1,0 +1,4 @@
+@model List<Deployment>
+@{ ViewData["Title"] = "Deployment History"; }
+<div class="page-heading"><div><div class="eyebrow">RELEASE ACTIVITY</div><h1>Deployment history</h1><p>Results and recovery information for your latest 100 deployments.</p></div><a class="btn btn-primary" asp-action="Create">＋ New deployment</a></div>
+<section class="panel"><div class="panel-heading"><h2>All deployments</h2><span class="count-pill">@Model.Count records</span></div><partial name="_DeploymentTable" model="Model" /></section>

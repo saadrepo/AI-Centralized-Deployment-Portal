@@ -1,0 +1,27 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsRunBuildViewModel
+@{ ViewData["Title"] = "Run new build"; }
+<div class="page-heading"><div><div class="eyebrow">TFS</div><h1>Run New Build</h1><p>Choose a TFVC changeset, then review the build before confirming.</p></div>
+@if (Model.DefinitionId > 0) { <a class="btn btn-primary" asp-action="Details" asp-route-id="@Model.DefinitionId">Back to Pipeline</a> }
+else { <a class="btn btn-primary" asp-action="Index">Back to Pipelines</a> }
+</div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (Model.Definition is { } definition)
+{
+    <section class="panel max-form">
+        <div class="panel-heading"><h2>Selected pipeline</h2></div>
+        <partial name="_RunDefinition" model="definition" />
+        @if (definition.CanRun)
+        {
+            <form asp-action="ReviewBuild" method="post" class="p-4" data-busy>
+                <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+                <input type="hidden" asp-for="DefinitionId" />
+                <label asp-for="SourceVersion" class="form-label"></label>
+                <input asp-for="SourceVersion" class="form-control" inputmode="numeric" autocomplete="off" required maxlength="10" pattern="[0-9]+" />
+                <span asp-validation-for="SourceVersion" class="text-danger"></span>
+                <p class="form-text">Enter the positive numeric TFVC changeset ID explicitly. No previous build version is preselected.</p>
+                <div class="d-flex gap-2 mt-3"><button type="submit" class="btn btn-primary">Review Build</button><a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@definition.Id">Cancel</a></div>
+            </form>
+        }
+        else { <div class="alert alert-warning m-3">This pipeline cannot run here. It must be an enabled TFVC pipeline with a configured queue and default source. Other source types remain read-only.</div> }
+    </section>
+}

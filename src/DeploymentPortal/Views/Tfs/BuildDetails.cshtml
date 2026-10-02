@@ -1,0 +1,69 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsBuildPageViewModel
+@{
+    ViewData["Title"] = "Build details";
+    string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    string Timestamp(DateTimeOffset? value) => value?.UtcDateTime.ToString("dd MMM yyyy HH:mm:ss") ?? "-";
+}
+<div class="page-heading">
+    <div><div class="eyebrow">TFS</div><h1>Build @Display(Model.Build?.BuildNumber)</h1><p>Build state, logs and artifacts. All timestamps UTC.</p></div>
+    <div class="d-flex flex-wrap gap-2">
+        @if (Model.Build?.Definition is { Id: > 0 } definition)
+        { <a class="btn btn-primary" asp-action="Details" asp-route-id="@definition.Id">Back to Pipeline</a> }
+        else
+        { <a class="btn btn-primary" asp-action="Index">Back to Pipelines</a> }
+        @if (Model.BuildId > 0)
+        { <a class="btn btn-outline-secondary" asp-action="BuildDetails" asp-route-id="@Model.BuildId">Refresh Status</a> }
+    </div>
+</div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (Model.Build is { } build)
+{
+    <section class="panel mb-4">
+        <div class="panel-heading"><h2>Build information</h2><partial name="_TfsStatus" model="@(build.Status ?? "Unknown")" /></div>
+        <dl class="detail-grid">
+            <dt>Build ID</dt><dd>@build.Id</dd>
+            <dt>Build Number</dt><dd>@Display(build.BuildNumber)</dd>
+            <dt>Pipeline / Definition</dt><dd>@Display(build.Definition?.Name)</dd>
+            <dt>Status</dt><dd>@Display(build.Status)</dd>
+            <dt>Result</dt><dd><partial name="_TfsStatus" model="@(build.Result ?? "Not available")" /></dd>
+            <dt>Requested By</dt><dd>@Display(build.RequestedBy?.DisplayName)</dd>
+            <dt>Queue</dt><dd>@Display(build.Queue?.Name)</dd>
+            <dt>Source Branch</dt><dd>@Display(build.SourceBranch)</dd>
+            <dt>ChangeSet (Src Version)</dt><dd>@Display(build.SourceVersion)</dd>
+            <dt>Queue Time</dt><dd>@Timestamp(build.QueueTime)</dd>
+            <dt>Start Time</dt><dd>@Timestamp(build.StartTime)</dd>
+            <dt>Finish Time</dt><dd>@Timestamp(build.FinishTime)</dd>
+            <dt>Duration (days.hh:mm:ss)</dt><dd>@build.Duration</dd>
+        </dl>
+    </section>
+    <section class="panel mb-4">
+        <div class="panel-heading"><h2>Build Logs</h2></div>
+        @if (Model.LogsError is string logsError) { <div class="alert alert-warning m-3" role="alert">@logsError</div> }
+        else if (Model.Logs.Count == 0) { <div class="empty-state"><h3>No logs available yet</h3><p>Refresh Status to check again.</p></div> }
+        else
+        {
+            <div class="table-responsive"><table class="table align-middle">
+                <thead><tr><th scope="col">Log ID</th><th scope="col">Type</th><th scope="col">Line Count</th><th scope="col">Action</th></tr></thead>
+                <tbody>@foreach (var log in Model.Logs)
+                {
+                    <tr><td>@log.Id</td><td>@Display(log.Type)</td><td>@(log.LineCount?.ToString() ?? "-")</td><td><a class="btn btn-outline-primary btn-sm" asp-action="BuildLog" asp-route-id="@build.Id" asp-route-logId="@log.Id">View Log</a></td></tr>
+                }</tbody>
+            </table></div>
+        }
+    </section>
+    <section class="panel">
+        <div class="panel-heading"><h2>Artifacts</h2></div>
+        @if (Model.ArtifactsError is string artifactsError) { <div class="alert alert-warning m-3" role="alert">@artifactsError</div> }
+        else if (Model.Artifacts.Count == 0) { <div class="empty-state"><h3>No artifacts available</h3></div> }
+        else
+        {
+            <div class="table-responsive"><table class="table align-middle">
+                <thead><tr><th scope="col">Artifact Name</th><th scope="col">Resource Type</th><th scope="col">Artifact/Data Path</th><th scope="col">Resource URL</th></tr></thead>
+                <tbody>@foreach (var artifact in Model.Artifacts)
+                {
+                    <tr><td>@Display(artifact.Name)</td><td>@Display(artifact.Resource?.Type)</td><td class="text-break">@Display(artifact.Resource?.Data)</td><td class="text-break">@Display(artifact.Resource?.Url)</td></tr>
+                }</tbody>
+            </table></div>
+        }
+    </section>
+}

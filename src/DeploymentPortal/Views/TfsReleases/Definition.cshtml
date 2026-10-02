@@ -1,0 +1,32 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsReleasePageViewModel
+@{ ViewData["Title"] = "Release definition"; }
+<div class="page-heading"><div><h1>@(Model.Definition?.Name ?? "Release definition")</h1><p>Recent releases, newest created first. All timestamps UTC.</p></div><div class="d-flex gap-2">
+    @if (Model.Definition is { Id: > 0 } deployDefinition) { <a class="btn btn-success" asp-action="Deploy" asp-route-id="@deployDefinition.Id">Deploy</a> }
+    <a class="btn btn-primary" asp-action="Index">Back to CD Releases</a>
+</div></div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (Model.Definition is { } definition)
+{
+    <section class="panel mb-4"><div class="panel-heading"><h2>Definition @definition.Id · @definition.Name</h2></div>
+        <partial name="_Artifacts" model="@(definition.Artifacts ?? [])" />
+        <dl class="detail-grid"><dt>Configured environments</dt><dd>@(definition.Environments is { Count: > 0 } ? string.Join(", ", definition.Environments.Where(x => x is not null).Select(x => x.Name)) : "Not available")</dd></dl>
+    </section>
+    @if (Model.ReleasesError is string releasesError) { <div class="alert alert-warning" role="alert">@releasesError</div> }
+    else
+    {
+        <section class="panel"><div class="panel-heading"><h2>Latest releases (up to 20)</h2></div>
+            <div class="table-responsive"><table class="table align-middle">
+                <thead><tr><th scope="col">ID</th><th scope="col">Release</th><th scope="col">Status</th><th scope="col">Artifact / build number</th><th scope="col">Created (UTC)</th></tr></thead>
+                <tbody>@foreach (var release in Model.Releases)
+                {
+                    <tr><td>@release.Id</td><td><a asp-action="Details" asp-route-id="@release.Id">@release.Name</a></td><td><partial name="~/Views/Tfs/_TfsStatus.cshtml" model="@(release.Status ?? "Unknown")" /></td><td>
+                        @if (release.Artifacts is { Count: > 0 })
+                        { foreach (var artifact in release.Artifacts.Where(x => x is not null)) { <div>@(artifact.Alias ?? "-"): @(artifact.Version?.Name ?? "Not available")</div> } }
+                        else { <span>Not available</span> }
+                    </td><td>@(release.CreatedOn?.UtcDateTime.ToString("dd MMM yyyy HH:mm:ss") ?? "Not available")</td></tr>
+                }</tbody>
+            </table></div>
+            @if (Model.Releases.Count == 0) { <div class="empty-state"><h3>No releases found</h3></div> }
+        </section>
+    }
+}

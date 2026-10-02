@@ -1,0 +1,38 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsReleaseDeployReviewViewModel
+@{
+    ViewData["Title"] = "Review deployment";
+    var isRedeploy = string.Equals(Model.EnvironmentStatus, "succeeded", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.EnvironmentStatus, "failed", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.EnvironmentStatus, "canceled", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.EnvironmentStatus, "rejected", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.LatestDeploymentStatus, "succeeded", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.LatestDeploymentStatus, "failed", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.LatestDeploymentStatus, "canceled", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Model.LatestDeploymentStatus, "rejected", StringComparison.OrdinalIgnoreCase);
+    var confirmLabel = isRedeploy ? "Confirm Redeploy" : "Confirm Deploy";
+}
+<div class="page-heading"><div><h1>Review deployment</h1><p>Confirm this CD environment deployment before TFS is updated.</p></div><a class="btn btn-primary" asp-action="Details" asp-route-id="@Model.ReleaseId">Back to Release</a></div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+<section class="panel mb-4">
+    <div class="panel-heading"><h2>Deployment target</h2></div>
+    <dl class="detail-grid">
+        <dt>Release</dt><dd>@(Model.ReleaseName ?? "Not available") (ID: @Model.ReleaseId)</dd>
+        <dt>Definition ID</dt><dd>@Model.ReleaseDefinitionId</dd>
+        <dt>Environment</dt><dd>@(Model.EnvironmentName ?? "Not available") (ID: @Model.EnvironmentId)</dd>
+        <dt>Environment status</dt><dd><partial name="~/Views/Tfs/_TfsStatus.cshtml" model="@(Model.EnvironmentStatus ?? "Unknown")" /></dd>
+        <dt>Latest deployment</dt><dd>@(Model.LatestDeploymentStatus ?? "notDeployed")</dd>
+        <dt>Operation status</dt><dd>@(Model.LatestOperationStatus ?? "None")</dd>
+    </dl>
+</section>
+<section class="panel">
+    <div class="panel-heading"><h2>Confirm</h2></div>
+    <div class="p-4">
+        <p class="mb-3">This will ask TFS to start deployment for this one environment. The portal will re-read TFS state before sending the request.</p>
+        <div class="soft-note mb-4">Confirmation expires in ten minutes and can only be used once.</div>
+        <form asp-action="ConfirmDeploy" method="post" class="d-flex flex-wrap align-items-center gap-2">
+            <input type="hidden" name="confirmationToken" value="@Model.ConfirmationToken" />
+            <button type="submit" class="btn btn-success d-inline-flex align-items-center justify-content-center text-nowrap">@confirmLabel</button>
+            <a class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center text-nowrap" asp-action="Details" asp-route-id="@Model.ReleaseId">Cancel</a>
+        </form>
+    </div>
+</section>

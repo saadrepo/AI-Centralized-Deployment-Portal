@@ -1,0 +1,7 @@
+@model IEnumerable<Deployment>
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Application</th><th>Server / environment</th><th>IIS site</th><th>Started</th><th>Duration</th><th>Status</th><th></th></tr></thead><tbody>
+@foreach (var d in Model) {
+    <tr><td><strong>@d.ApplicationName</strong><small class="cell-subtitle">@d.Id.ToString()[..8]</small></td><td>@d.Server.DisplayName<small class="cell-subtitle">@d.Environment</small></td><td>@d.SiteName</td><td class="nowrap">@d.StartedAt.ToString("dd MMM yyyy")<small class="cell-subtitle">@d.StartedAt.ToString("HH:mm:ss") UTC</small></td><td>@d.Duration</td><td><partial name="_Status" model="d.Status.ToString()" /></td><td><a class="table-link" asp-controller="Deployments" asp-action="Details" asp-route-id="@d.Id">Details →</a></td></tr>
+}
+</tbody></table></div>
+@if (!Model.Any()) { <div class="empty-state"><span>↗</span><h3>Your first deployment starts here</h3><p>Register a server, then deploy a published application to IIS.</p><a asp-controller="Deployments" asp-action="Create" class="btn btn-outline-primary">Create deployment</a></div> }

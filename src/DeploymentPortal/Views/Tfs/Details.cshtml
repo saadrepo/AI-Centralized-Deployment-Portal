@@ -1,0 +1,60 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsPipelineDetailsViewModel
+@{
+    ViewData["Title"] = "Pipeline details";
+    string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not available" : value;
+    string Timestamp(DateTimeOffset? value) => value?.UtcDateTime.ToString("dd MMM yyyy HH:mm:ss") ?? "Not available";
+}
+<div class="page-heading"><div><a class="btn btn-primary mb-3 d-inline-flex align-items-center gap-2" asp-action="Index"><span class="d-inline-flex align-items-center flex-shrink-0" style="transform: rotate(180deg)"><partial name="_Icon" model='@("arrow")' /></span><span>Back to Pipelines</span></a><h1>@(Model.Definition?.Name ?? "Pipeline details")</h1><p>Build definition and latest 20 builds, newest queued first. All timestamps UTC.</p></div></div>
+@if (Model.Error is string error)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+@if (Model.Definition is { } definition)
+{
+    <section class="panel mb-4">
+        <div class="panel-heading"><h2>Build definition</h2><a class="btn btn-primary" asp-action="RunBuild" asp-route-id="@definition.Id">Run New Build</a></div>
+        <dl class="detail-grid">
+            <dt>ID</dt><dd>@definition.Id</dd>
+            <dt>Name</dt><dd>@definition.Name</dd>
+            <dt>Path</dt><dd>@Display(definition.Path)</dd>
+            <dt>Revision</dt><dd>@definition.Revision</dd>
+            <dt>Queue Status</dt><dd>@Display(definition.QueueStatus)</dd>
+            <dt>Queue Name</dt><dd>@Display(definition.Queue?.Name)</dd>
+            <dt>Repository/Source Type</dt><dd>@Display(definition.Repository?.Type)</dd>
+            <dt>Default Source/Branch</dt><dd>@Display(definition.Repository?.DefaultBranch)</dd>
+        </dl>
+    </section>
+    @if (Model.BuildsError is string buildsError)
+    {
+        <div class="alert alert-warning" role="alert">@buildsError</div>
+    }
+    else
+    {
+        <section class="panel">
+            <div class="panel-heading"><h2>Latest builds <span class="count-pill">@Model.Builds.Count</span></h2></div>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th scope="col">Build ID</th><th scope="col">Build Number</th><th scope="col">Status</th><th scope="col">Result</th><th scope="col">Requested By</th><th scope="col">Source Branch</th><th scope="col">ChangeSet (Src Version)</th><th scope="col">Queue Time (UTC)</th><th scope="col">Start Time (UTC)</th><th scope="col">Finish Time (UTC)</th><th scope="col">Action</th></tr></thead>
+                    <tbody>
+                    @foreach (var build in Model.Builds)
+                    {
+                        <tr><td>@build.Id</td><td><a asp-action="BuildDetails" asp-route-id="@build.Id">@Display(build.BuildNumber)</a></td><td>@Display(build.Status)</td><td><partial name="_TfsStatus" model="@(build.Result ?? "Unknown")" /></td><td>@(string.IsNullOrWhiteSpace(build.RequestedBy?.DisplayName) ? "-" : build.RequestedBy.DisplayName)</td><td class="text-break">@Display(build.SourceBranch)</td><td class="text-break">@Display(build.SourceVersion)</td><td>@Timestamp(build.QueueTime)</td><td>@Timestamp(build.StartTime)</td><td>@Timestamp(build.FinishTime)</td><td>
+                            @if (build.BuildAction is string action)
+                            {
+                                <form asp-action="ReviewExistingBuild" method="post" data-busy>
+                                    <input type="hidden" name="id" value="@build.Id" />
+                                    <button type="submit" class="btn btn-primary">@action</button>
+                                </form>
+                            }
+                        </td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            @if (Model.Builds.Count == 0)
+            {
+                <div class="empty-state"><h3>No builds found</h3><p>This pipeline has no build history.</p></div>
+            }
+        </section>
+    }
+}

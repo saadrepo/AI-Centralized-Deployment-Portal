@@ -1,0 +1,14 @@
+@model Deployment
+@{ ViewData["Title"] = "Delete IIS site"; }
+<div class="page-heading"><div><h1>Delete IIS site</h1><p>Review the live site before confirming removal.</p></div></div>
+<section class="panel"><div class="form-body">
+<div class="alert alert-danger">This removes the entire IIS site and all its application mappings. The website will stop browsing. Application files, application pools, backups and deployment history will remain.</div>
+<dl class="detail-grid"><dt>Server</dt><dd>@Model.Server.DisplayName (@Model.Server.HostNameOrIp)</dd><dt>Site</dt><dd>@Model.SiteName</dd></dl>
+<p>@ViewData["Message"]</p>
+<form asp-action="ConfirmDelete" method="post" data-busy>
+<input type="hidden" name="serverId" value="@Model.ServerId" /><input type="hidden" name="siteName" value="@Model.SiteName" />
+<input type="hidden" name="token" value="@ViewData["Token"]" />
+<label for="confirmedName">Type @Model.SiteName to confirm</label>
+<input id="confirmedName" name="confirmedName" class="form-control" required autocomplete="off" />
+<div class="form-actions"><a class="btn btn-light" asp-action="Index" asp-route-serverId="@Model.ServerId">Cancel</a><button type="submit" class="btn btn-danger">Delete site permanently</button></div>
+</form></div></section>

@@ -1,0 +1,77 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsReleasePageViewModel
+@{
+    ViewData["Title"] = "Release details";
+    static bool IsRunningStatus(string? value) => string.Equals(value, "inProgress", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "active", StringComparison.OrdinalIgnoreCase);
+    static bool IsQueuedStatus(string? value) => string.Equals(value, "queued", StringComparison.OrdinalIgnoreCase);
+}
+<div class="page-heading"><div><h1>@(Model.Release?.Name ?? "Release details")</h1><p>Release artifacts and environment deployment status.</p></div>
+    <div class="d-flex gap-2">
+        @if (Model.Release?.ReleaseDefinition is { Id: > 0 } definition) { <a class="btn btn-primary" asp-action="Definition" asp-route-id="@definition.Id">Back to Definition</a> }
+        else { <a class="btn btn-primary" asp-action="Index">CD Releases</a> }
+        @if (Model.Release is { } current) { <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@current.Id">Refresh Status</a> }
+    </div>
+</div>
+@if (Model.Error is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (Model.Release is { } release)
+{
+    var releaseContainsProduction = (release.Environments ?? []).Any(x => x is not null && DeploymentPortal.ViewModels.Tfs.TfsReleaseDeploymentEligibility.IsProduction(x.Name));
+    <section class="panel mb-4"><div class="panel-heading"><h2>Release metadata</h2></div>
+        <dl class="detail-grid"><dt>Release ID</dt><dd>@release.Id</dd><dt>Name</dt><dd>@release.Name</dd><dt>Status</dt><dd><partial name="~/Views/Tfs/_TfsStatus.cshtml" model="@(release.Status ?? "Unknown")" /></dd><dt>Definition</dt><dd>@(release.ReleaseDefinition?.Name ?? "Not available") (ID: @(release.ReleaseDefinition?.Id.ToString() ?? "-"))</dd></dl>
+    </section>
+    <section class="panel mb-4"><div class="panel-heading"><h2>Artifacts</h2></div><partial name="_Artifacts" model="@(release.Artifacts ?? [])" /></section>
+    <section class="panel"><div class="panel-heading"><h2>Release environments</h2></div>
+        <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Environment</th><th scope="col">Environment status</th><th scope="col">Latest deployment</th><th scope="col">Operation</th><th scope="col">Pending approvals</th><th scope="col">Action</th></tr></thead>
+            <tbody>@foreach (var environment in (release.Environments ?? []).Where(x => x is not null))
+            {
+                var latest = environment.LatestDeployment;
+                var actionLabel = releaseContainsProduction ? null : environment.ActionLabel;
+                var showInProgress = IsRunningStatus(environment.EffectiveDeploymentStatus);
+                var showQueued = IsQueuedStatus(environment.EffectiveDeploymentStatus);
+                <tr>
+                    <td>@(environment.Name ?? "Not available")</td>
+                    <td><partial name="~/Views/Tfs/_TfsStatus.cshtml" model="@(environment.Status ?? "Unknown")" /></td>
+                    <td><partial name="~/Views/Tfs/_TfsStatus.cshtml" model="@environment.EffectiveDeploymentStatus" />@if (latest?.Attempt > 0) { <small class="cell-subtitle">Attempt @latest.Attempt</small> }</td>
+                    <td>@(latest?.OperationStatus ?? "None")</td>
+                    <td>
+                        @if (environment.PendingApprovals.Count > 0)
+                        {
+                            foreach (var approval in environment.PendingApprovals)
+                            {
+                                var approver = string.IsNullOrWhiteSpace(approval.Approver?.Name) ? "" : " for " + approval.Approver.Name;
+                                <div>@(approval.ApprovalType ?? "approval") #@approval.Id@approver</div>
+                            }
+                        }
+                        else { <span>None</span> }
+                    </td>
+                    <td>
+                        @if (actionLabel is not null)
+                        {
+                            <form asp-action="ReviewDeploy" method="post" class="d-inline">
+                                <input type="hidden" name="releaseId" value="@release.Id" />
+                                <input type="hidden" name="environmentId" value="@environment.Id" />
+                                <button type="submit" class="btn btn-sm btn-success d-inline-flex align-items-center justify-content-center text-nowrap">@actionLabel</button>
+                            </form>
+                        }
+                        else if (showInProgress)
+                        {
+                            <span class="btn btn-sm cd-action-status cd-action-progress disabled d-inline-flex align-items-center justify-content-center gap-2 text-nowrap" aria-disabled="true">
+                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                <span>Deployment in Progress...</span>
+                            </span>
+                        }
+                        else if (showQueued)
+                        {
+                            <span class="btn btn-sm cd-action-status cd-action-queued disabled d-inline-flex align-items-center justify-content-center gap-2 text-nowrap" aria-disabled="true">
+                                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                <span>Queued...</span>
+                            </span>
+                        }
+                        else { <span class="text-muted">Unavailable</span> }
+                    </td>
+                </tr>
+            }</tbody>
+        </table></div>
+        @if (release.Environments is not { Count: > 0 }) { <div class="empty-state"><h3>No environment metadata available</h3></div> }
+    </section>
+}

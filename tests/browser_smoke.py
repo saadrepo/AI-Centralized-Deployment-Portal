@@ -1,0 +1,60 @@
+"""Run only against a disposable verification database, with no credential for the .invalid host."""
+import os
+from pathlib import Path
+from playwright.sync_api import sync_playwright, expect
+
+base = os.environ.get('PORTAL_TEST_URL', 'http://127.0.0.1:5187')
+artifacts = Path('.tools/verification')
+artifacts.mkdir(parents=True, exist_ok=True)
+with sync_playwright() as p:
+    browser = p.chromium.launch(channel='msedge', headless=True)
+    page = browser.new_page(viewport={'width': 1440, 'height': 1050})
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(base)
+    expect(page.get_by_role('heading', name='Deployment overview')).to_be_visible()
+    page.screenshot(path=str(artifacts / 'dashboard-empty.png'), full_page=True)
+    assert page.request.post(base + '/Servers/Delete/1').status == 400, 'CSRF must be rejected'
+    page.goto(base + '/Servers/Create')
+    page.get_by_label('Display name').fill('Phase 1 verification')
+    page.get_by_label('Hostname / IPv4 address').fill('phase1-verification.invalid')
+    page.get_by_label('Environment', exact=True).select_option('Test')
+    page.get_by_label('Username').fill('TESTSERVER\\deploy-user')
+    page.get_by_role('button', name='Test connection', exact=True).click()
+    expect(page.get_by_text('No development credential is configured', exact=False)).to_be_visible()
+    page.get_by_role('button', name='Save server').click()
+    expect(page.get_by_role('heading', name='Phase 1 verification', exact=True)).to_be_visible()
+    server_url = page.url
+    page.get_by_role('button', name='Test connection', exact=True).click()
+    expect(page.get_by_text('Offline', exact=True)).to_be_visible()
+    page.get_by_role('link', name='Edit server', exact=True).click()
+    page.get_by_label('Display name').fill('Phase 1 verification · edited')
+    page.get_by_role('button', name='Save server').click()
+    expect(page.get_by_role('heading', name='Phase 1 verification · edited', exact=True)).to_be_visible()
+    page.get_by_role('link', name='Deploy application', exact=False).click()
+    page.get_by_label('IIS site name').fill('Verification Site')
+    page.get_by_label('Application name', exact=True).fill('portal')
+    page.get_by_label('Package folder on target server').fill('C:\\DeploymentPackages\\release-001')
+    page.get_by_label('Target physical path').fill('C:\\DeploymentPackages\\release-001\\nested-target')
+    page.get_by_role('button', name='Review deployment', exact=False).click()
+    expect(page.get_by_text('Source, target and backup directories must not', exact=False)).to_be_visible()
+    page.get_by_label('Target physical path').fill('D:\\MySites\\portal')
+    page.get_by_role('button', name='Review deployment', exact=False).click()
+    expect(page.get_by_text('No development credential is configured', exact=False)).to_be_visible()
+    expect(page.locator('#confirm-deployment')).to_have_count(0)
+    page.goto(base + '/Deployments')
+    expect(page.get_by_role('cell', name='portal', exact=False)).to_have_count(0)
+    page.goto(base + '/Settings')
+    expect(page.get_by_role('heading', name='Automation policy')).to_be_visible()
+    page.goto(base)
+    page.screenshot(path=str(artifacts / 'dashboard.png'), full_page=True)
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.reload()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Page must not overflow mobile viewport'
+    page.get_by_role('button', name='Toggle navigation').click()
+    expect(page.get_by_role('link', name='Servers', exact=False).first).to_be_visible()
+    page.get_by_role('button', name='Toggle navigation').click()
+    page.screenshot(path=str(artifacts / 'dashboard-mobile.png'), full_page=True)
+    assert not errors, errors
+    browser.close()
+print('PASS: dashboard, server create/edit/test, overlapping-path rejection, custom target path, failed preview blocks confirmation, no deployment queued, CSRF, settings and mobile layout.')

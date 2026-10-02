@@ -1,0 +1,45 @@
+@{ var controller = ViewContext.RouteData.Values["controller"]?.ToString(); var action = ViewContext.RouteData.Values["action"]?.ToString(); }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · Deployment Portal</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/portal-theme.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/portal-colors.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/readability.css" asp-append-version="true" />
+</head>
+<body>
+<a class="visually-hidden-focusable skip-link" href="#main">Skip to content</a>
+<aside class="sidebar" id="sidebar">
+    <a class="brand" asp-controller="Home" asp-action="Index"><span class="brand-mark"><partial name="_Icon" model='@("server")' /></span><span style="display:flex;flex-direction:column;line-height:1;font-size:19px;color:#fff">Deployment<span style="color:#04d3df">Portal</span></span></a>
+    <div class="workspace-switch"><span class="workspace-avatar">W</span><div>Windows workspace<small>Infrastructure management</small></div><span class="workspace-chevron">⌄</span></div>
+    <div class="workspace-label">WORKSPACE</div>
+    <nav aria-label="Main navigation">
+        <a class="nav-item @(controller is "Tfs" or "TfsReleases" ? "active" : "")" asp-controller="Tfs" asp-action="Index"><partial name="_Icon" model='@("grid")' /> TFS</a>
+        <a class="nav-item @(controller == "Home" && action == "Index" ? "active" : "")" asp-controller="Home" asp-action="Index"><partial name="_Icon" model='@("grid")' /> Dashboard</a>
+        <a class="nav-item @(controller == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers</a>
+        <a class="nav-item @(controller == "Sites" ? "active" : "")" asp-controller="Sites" asp-action="Index"><partial name="_Icon" model='@("server")' /> IIS Sites</a>
+        <a class="nav-item @(controller == "Deployments" && action is "Create" or "Review" ? "active" : "")" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> IIS Deployments</a>
+        <a class="nav-item @(controller is "DockerDeployments" or "DockerContainers" ? "active" : "")" asp-controller="DockerDeployments" asp-action="Index"><partial name="_Icon" model='@("container")' /> Docker Deployments</a>
+        <a class="nav-item @(controller == "Deployments" && action is "Index" or "Details" ? "active" : "")" asp-controller="Deployments" asp-action="Index"><partial name="_Icon" model='@("clock")' /> Deployment History</a>
+        <a class="nav-item @(action == "PowerShell" ? "active" : "")" asp-controller="Home" asp-action="PowerShell"><partial name="_Icon" model='@("terminal")' /> PowerShell</a>
+        <a class="nav-item @(action == "Settings" ? "active" : "")" asp-controller="Home" asp-action="Settings"><partial name="_Icon" model='@("settings")' /> Settings</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="sidebar-callout"><partial name="_Icon" model='@("shield")' /><strong>Built for controlled releases</strong><small>Review. Back up. Deploy.</small><a asp-controller="Deployments" asp-action="Create">Start a deployment <span>↗</span></a></div><div class="sidebar-profile"><span class="avatar">OP</span><div>Operations workspace<small>Phase 1 · Internal prototype</small></div></div></div>
+</aside>
+<div class="shell">
+    <header class="topbar"><div class="d-flex align-items-center gap-3"><button type="button" id="menu-toggle" class="btn btn-sm btn-outline-secondary d-lg-none" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle navigation">☰</button><span class="breadcrumb-label">Workspace <span>/</span> @ViewData["Title"]</span></div><div class="topbar-right"><span class="prototype-dot"></span> Internal prototype <span class="avatar">OP</span></div></header>
+    <main id="main" class="main-content">
+        @if (TempData["Success"] is string success) { <div class="alert alert-success" role="status">@success</div> }
+        @if (TempData["Error"] is string error) { <div class="alert alert-danger" role="alert">@error</div> }
+        @RenderBody()
+    </main>
+    <footer>Deployment Portal <span>Windows Server Deployment Portal · Phase 1</span><span>All timestamps UTC</span></footer>
+</div>
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body></html>

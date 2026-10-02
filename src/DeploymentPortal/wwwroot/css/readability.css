@@ -1,0 +1,41 @@
+/* Secondary text must remain readable on the light reference palette. */
+:root{--muted:#465f82}
+p,.page-heading p,.hero-copy p,.help-panel p,.empty-state p{color:#465f82}
+.eyebrow,.section-kicker,.hero-label{color:#08798a;font-size:11px;font-weight:700}
+.table th{color:#405a7e;font-size:11px;font-weight:650}
+.table td,.table strong{font-size:12px}
+.cell-subtitle{color:#52698b;font-size:11px}
+.panel-bottom{color:#486183;font-size:11px;font-weight:500}
+.protocol-label{color:#466181;font-size:10px;font-weight:600}
+.health-note{color:#506789;font-size:11px}
+.health-legend>div,.health-ring span{color:#496283;font-size:12px}
+.small-label,.count-pill{color:#466080;font-size:11px;font-weight:600}
+.environment{color:#365d7e;font-size:11px;font-weight:500}
+.status-badge{font-size:11px}.neutral{color:#4d6286}
+.cd-action-status,.cd-action-status.disabled{border:0;color:#fff;opacity:1;pointer-events:none}.cd-action-progress,.cd-action-progress.disabled{background:#087fc3;color:#fff}.cd-action-queued,.cd-action-queued.disabled{background:#5f5f5f;color:#fff}.cd-action-status .spinner-border{color:#fff}
+.environment-strip h2{color:#365577;font-size:13px}
+.environment-counts a>span,.environment-counts small{color:#4b6385;font-size:11px}
+.map-node small,.map-node b{color:#496489;font-size:10px}
+.hero-copy p,.page-heading p,.empty-state p{font-size:12px}
+.metric-label{font-size:12px;font-weight:600}
+.metric-foot{font-size:11px;font-weight:500}
+/* Dark text gives the pastel metric colors enough contrast at small sizes. */
+.metric-mint .metric-label,.metric-mint .metric-foot,.metric-mint .metric-value,.metric-mint .metric-open{color:#071c3b}
+.metric-green .metric-label,.metric-green .metric-foot,.metric-green .metric-value,.metric-green .metric-open{color:#07362e}
+.metric-violet .metric-label,.metric-violet .metric-foot,.metric-violet .metric-value,.metric-violet .metric-open{color:#062d42}
+.metric-orange .metric-label,.metric-orange .metric-foot,.metric-orange .metric-value,.metric-orange .metric-open{color:#fff}
+label,.detail-grid dt{color:#445e80;font-size:12px;font-weight:600}
+.form-text,.form-control::placeholder{color:#53698a;font-size:12px;opacity:1}
+.soft-note{color:#455f83;font-size:12px}
+.breadcrumb-label,.topbar-right{color:#4d6687;font-size:11px}
+.stepper{color:#506687}.stepper b{font-size:12px}
+.workflow li,.form-section-title span{color:#4c6586;font-size:12px}
+.result-banner small{color:#49627f;font-size:12px}
+.panel-heading p,.panel-heading a,.table-actions,.table-link{font-size:12px}
+a,.panel-heading a,.hero-copy>a{color:#08788c}
+.sidebar a{color:#d5e5ff}.sidebar .brand{color:#fff}
+.sidebar .nav-item.active,.sidebar .nav-item.active:hover{color:#061c3b}
+.sidebar-callout a{color:#29d4df}
+.workspace-switch small,.workspace-label,.sidebar-profile small,.sidebar-bottom small{color:#b8cae4;font-size:10px}
+footer{color:#506888;font-size:11px}
+@media(max-width:575px){.metric-foot{font-size:10px}.panel-bottom{font-size:11px}.hero-label{font-size:10px}.topbar-right{font-size:0}.avatar{font-size:10px}footer{font-size:10px}}

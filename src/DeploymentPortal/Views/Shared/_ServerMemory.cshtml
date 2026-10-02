@@ -1,0 +1,9 @@
+@model Server
+@if (Model.TotalMemoryBytes is > 0)
+{
+    <span class="nowrap" title="Total physical memory reported by Windows">@((Model.TotalMemoryBytes.Value / 1073741824d).ToString("0.##")) GiB</span>
+}
+else
+{
+    <span class="cell-subtitle">Not checked</span>
+}

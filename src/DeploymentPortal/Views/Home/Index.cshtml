@@ -1,0 +1,38 @@
+@model DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+    var total = Model.Servers.Count;
+    var online = Model.Servers.Count(x => x.LastConnectionStatus == ConnectionStatus.Online);
+    var offline = Model.Servers.Count(x => x.LastConnectionStatus == ConnectionStatus.Offline);
+    var unknown = total - online - offline;
+    var onlinePercent = total == 0 ? 0 : (int)Math.Round(online * 100d / total);
+    var offlinePercent = total == 0 ? 0 : (int)Math.Round(offline * 100d / total);
+}
+<div class="page-heading dashboard-heading"><div><div class="eyebrow">YOUR OPERATIONS, CONNECTED</div><h1>Deployment overview<span class="heading-dot">.</span></h1><p>A clear view of your infrastructure. A better way to ship.</p></div><div class="dashboard-actions"><a class="btn btn-outline-secondary" asp-controller="Servers" asp-action="Create"><partial name="_Icon" model='@("plus")' /> Add server</a><a class="btn btn-primary" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> New deployment</a></div></div>
+
+<section class="release-hero">
+    <div class="hero-copy"><span class="hero-label"><span></span> WINDOWS DEPLOYMENT WORKSPACE</span><h2>From ready to released.<br /><span>With every step covered.</span></h2><p>Connect your servers, review your release, and deploy to IIS with a retained backup.</p><a asp-controller="Deployments" asp-action="Create">Create a deployment <partial name="_Icon" model='@("arrow")' /></a></div>
+    <div class="release-map" aria-label="Deployment workflow: connect, back up, deploy"><div class="map-orbit orbit-one"></div><div class="map-orbit orbit-two"></div><div class="map-grid"></div><div class="map-core"><partial name="_Icon" model='@("server")' /><span>IIS</span></div><div class="map-node node-connect"><span class="node-icon"><partial name="_Icon" model='@("activity")' /></span><div>Connect<small>Verify your target</small></div><b>01</b></div><div class="map-node node-backup"><span class="node-icon"><partial name="_Icon" model='@("shield")' /></span><div>Back up<small>Preserve the previous release</small></div><b>02</b></div><div class="map-node node-deploy"><span class="node-icon"><partial name="_Icon" model='@("rocket")' /></span><div>Deploy<small>Release with confidence</small></div><b>03</b></div></div>
+</section>
+
+<div class="metrics-grid">
+@foreach (var metric in new[] { new { Label = "Total servers", Value = total, Icon = "server", Style = "mint", Note = "Registered Windows endpoints", Link = "/Servers" }, new { Label = "Online servers", Value = online, Icon = "activity", Style = "green", Note = "Last connection successful", Link = "/Servers" }, new { Label = "Offline servers", Value = offline, Icon = "alert", Style = "orange", Note = "Last connection unsuccessful", Link = "/Servers" }, new { Label = "Total deployments", Value = Model.TotalDeployments, Icon = "rocket", Style = "violet", Note = "Across all environments", Link = "/Deployments" } }) {
+    <a class="metric-card metric-@metric.Style" href="@metric.Link"><div class="metric-top"><span class="metric-icon"><partial name="_Icon" model="metric.Icon" /></span><span class="metric-open">↗</span></div><div class="metric-number-row"><div class="metric-value">@metric.Value.ToString("N0")</div><span class="metric-label">@metric.Label</span></div><div class="metric-foot"><span class="mini-dot"></span>@metric.Note</div></a>
+}
+</div>
+
+<div class="dashboard-columns">
+    <section class="panel inventory-panel"><div class="panel-heading"><div><span class="section-kicker">INFRASTRUCTURE</span><h2>Recent servers <span class="count-pill">@total</span></h2></div><a asp-controller="Servers" asp-action="Index">View all <partial name="_Icon" model='@("arrow")' /></a></div>
+    @if (total > 0) {
+        <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Server</th><th>Operating system</th><th>RAM (total)</th><th>Environment</th><th>Connection status</th><th></th></tr></thead><tbody>
+        @foreach (var s in Model.Servers.Take(5)) { <tr><td><div class="server-cell"><span class="server-avatar"><partial name="_Icon" model='@("server")' /></span><div><strong>@s.DisplayName</strong><small class="cell-subtitle">@s.HostNameOrIp</small></div></div></td><td>@s.OperatingSystem</td><td><partial name="_ServerMemory" model="s" /></td><td><span class="environment">@s.Environment</span></td><td><partial name="_Status" model="s.LastConnectionStatus.ToString()" /></td><td><a class="row-arrow" asp-controller="Servers" asp-action="Details" asp-route-id="@s.Id" aria-label="Manage @s.DisplayName"><partial name="_Icon" model='@("arrow")' /></a></td></tr> }
+        </tbody></table></div>
+    } else { <div class="empty-state"><span><partial name="_Icon" model='@("server")' /></span><h3>Your infrastructure starts here</h3><p>Connect your first Windows server and bring your<br class="d-none d-md-block" /> deployments into one workspace.</p><a class="btn btn-outline-primary" asp-controller="Servers" asp-action="Create"><partial name="_Icon" model='@("plus")' /> Add your first server</a></div> }
+    <div class="panel-bottom"><partial name="_Icon" model='@("shield")' /><span>Controlled access through Windows PowerShell Remoting</span><span class="protocol-label">WINRM</span></div></section>
+
+    <section class="panel health-panel"><div class="panel-heading"><div><span class="section-kicker">CONNECTIVITY</span><h2>Server status</h2></div><span class="small-label">Last checked</span></div><div class="health-body"><div class="health-ring" style="--online:@(onlinePercent)%;--checked:@(Math.Min(100, onlinePercent + offlinePercent))%" role="img" aria-label="@online online, @offline offline, @unknown not checked"><div><strong>@total</strong><span>Total servers</span></div></div><div class="health-legend"><div><span><i class="dot green-dot"></i>Online</span><strong>@online</strong></div><div><span><i class="dot red-dot"></i>Offline</span><strong>@offline</strong></div><div><span><i class="dot gray-dot"></i>Not checked</span><strong>@unknown</strong></div></div><p class="health-note">Connection status reflects the last manual test.</p></div></section>
+</div>
+
+<section class="panel release-panel"><div class="panel-heading"><div><span class="section-kicker">RELEASE ACTIVITY</span><h2>Recent deployments</h2></div><a asp-controller="Deployments" asp-action="Index">View history <partial name="_Icon" model='@("arrow")' /></a></div><partial name="_DeploymentTable" model="Model.Deployments" /></section>
+
+<section class="environment-strip"><div><span class="section-kicker">YOUR WORKSPACE</span><h2>Across every environment</h2></div><div class="environment-counts">@foreach (var env in Environments.All) { <a asp-controller="Servers" asp-action="Index"><span>@env</span><strong>@Model.Servers.Count(s => s.Environment == env)<small> servers</small></strong></a> }</div></section>

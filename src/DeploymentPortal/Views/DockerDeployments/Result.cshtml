@@ -1,0 +1,4 @@
+@model DeploymentPortal.Services.DockerRunResult
+@{ ViewData["Title"] = "Docker deployment result"; }
+<div class="page-heading"><div><h1>Docker deployment result</h1></div></div>
+<section class="panel max-form"><div class="panel-heading"><h2>@(Model.Success ? "Container started" : "Deployment failed")</h2></div><div class="form-body"><div class="alert @(Model.Success ? "alert-success" : "alert-danger")" role="status">@Model.Message</div>@if (Model.ImageTag is not null) { <dl class="detail-grid p-0"><dt>Image</dt><dd class="font-monospace">@Model.ImageTag</dd>@if (Model.ContainerId is not null) { <dt>Container ID</dt><dd class="font-monospace">@Model.ContainerId</dd> }</dl> }<a class="btn btn-primary" asp-action="Index" asp-route-context="@ViewBag.Context">View containers</a></div></section>

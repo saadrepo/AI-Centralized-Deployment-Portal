@@ -1,0 +1,18 @@
+@model string
+@{
+    var value = Model ?? "Unknown";
+    var key = value.ToLowerInvariant();
+    var style = key switch { "succeeded" => "success", "failed" or "rejected" => "danger", "inprogress" or "in progress" or "queued" => "running", _ => "neutral" };
+    var label = key switch
+    {
+        "notstarted" or "notdeployed" => "NOT DEPLOYED",
+        "inprogress" => "IN PROGRESS",
+        "queued" => "QUEUED",
+        "succeeded" => "SUCCEEDED",
+        "failed" => "FAILED",
+        "canceled" or "cancelled" => "CANCELLED",
+        "rejected" => "REJECTED",
+        _ => value
+    };
+}
+<span class="status-badge @style"><span class="status-dot"></span>@label</span>

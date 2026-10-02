@@ -1,0 +1,9 @@
+@model IReadOnlyList<DeploymentPortal.ViewModels.Tfs.TfsReleaseArtifactViewModel>
+<div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th scope="col">Artifact</th><th scope="col">Type</th><th scope="col">CI / source definition</th><th scope="col">Definition ID</th><th scope="col">Build / artifact version</th></tr></thead>
+    <tbody>@foreach (var artifact in Model.Where(x => x is not null))
+    {
+        <tr><td>@(artifact.Alias ?? "-")</td><td>@(artifact.Type ?? "-")</td><td>@(artifact.Definition?.Name ?? "Not available")</td><td>@(artifact.Definition?.Id ?? "-")</td><td>@(artifact.Version?.Name ?? "Not available")</td></tr>
+    }</tbody>
+</table></div>
+@if (Model.Count == 0) { <div class="empty-state"><h3>No artifact metadata available</h3></div> }

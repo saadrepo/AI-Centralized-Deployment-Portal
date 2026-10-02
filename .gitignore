@@ -1,0 +1,44 @@
+# .NET build files
+**/bin/
+**/obj/
+.tools/
+.vs/
+**/TestResults/
+*.user
+
+# Local application settings / secrets
+**/appsettings.Local.json
+**/appsettings.Development.json
+.env
+.env.*
+!.env.example
+
+# Secrets / credentials
+**/secrets.json
+**/*credentials*.json
+**/*secret*.json
+
+# Certificates / private keys
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Visual Studio / VS Code local files
+.vscode/
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp**/appsettings.json

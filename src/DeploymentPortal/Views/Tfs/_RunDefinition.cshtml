@@ -1,0 +1,9 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsDefinitionViewModel
+<dl class="detail-grid">
+    <dt>Pipeline Name</dt><dd>@Model.Name</dd>
+    <dt>Definition ID</dt><dd>@Model.Id</dd>
+    <dt>Queue Status</dt><dd>@Model.QueueStatus</dd>
+    <dt>Queue Name</dt><dd>@(Model.Queue?.Name ?? "-")</dd>
+    <dt>Source Type</dt><dd>@(Model.Repository?.Type ?? "-")</dd>
+    <dt>Default Source</dt><dd>@(Model.Repository?.DefaultBranch ?? "-")</dd>
+</dl>

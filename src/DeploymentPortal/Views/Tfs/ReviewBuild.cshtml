@@ -1,0 +1,13 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsRunBuildViewModel
+@{ ViewData["Title"] = "Review build"; }
+<div class="page-heading"><div><div class="eyebrow">TFS</div><h1>Review Build</h1><p>Confirm the pipeline and changeset below. Confirmation queues a real CI build in TFS.</p></div></div>
+<section class="panel max-form">
+    <div class="panel-heading"><h2>Build confirmation</h2></div>
+    <partial name="_RunDefinition" model="Model.Definition!" />
+    <dl class="detail-grid"><dt>ChangeSet (Src Version)</dt><dd><strong>@Model.SourceVersion</strong></dd></dl>
+    <form asp-action="ConfirmBuild" method="post" class="p-4" data-busy>
+        <input type="hidden" name="confirmationToken" value="@Model.ConfirmationToken" />
+        <p>This review expires after 10 minutes and can be submitted once.</p>
+        <div class="d-flex flex-wrap gap-2"><button type="submit" class="btn btn-primary">Confirm &amp; Run Build</button><a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@Model.DefinitionId">Cancel</a></div>
+    </form>
+</section>

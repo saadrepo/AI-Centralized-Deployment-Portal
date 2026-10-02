@@ -1,0 +1,15 @@
+@model DockerContainerForm
+@{ ViewData["Title"] = "Build Docker image"; }
+<div class="page-heading"><div><a class="back-link" asp-controller="DockerDeployments" asp-action="Index">← Docker Deployments</a><h1>Build Docker image</h1><p>Build from your source folder and start a container with the current Docker context.</p></div><span class="environment">Docker Engine</span></div>
+<div class="stepper"><span class="current">1 <b>Configure</b></span><i></i><span>2 <b>Review &amp; confirm</b></span><i></i><span>3 <b>Result</b></span></div>
+<section class="panel max-form"><div class="panel-heading"><h2>Build and run</h2></div>
+    <form asp-action="Review" method="post" class="form-body" data-busy>
+        <div asp-validation-summary="All" class="text-danger" role="alert"></div>
+        <div class="mb-4"><label asp-for="SourcePath"></label><input asp-for="SourcePath" class="form-control font-monospace" placeholder="C:\Projects\MyApp" /><span asp-validation-for="SourcePath"></span><div class="form-text">Enter an absolute folder path on the dashboard host. The folder must contain a Dockerfile. Docker uses this folder as the build context.</div></div>
+        <div class="mb-4"><label asp-for="ContainerName"></label><input asp-for="ContainerName" class="form-control" placeholder="my-app" /><span asp-validation-for="ContainerName"></span><div class="form-text">A new container is created; existing containers are never replaced.</div></div>
+        <div class="row g-4"><div class="col-md-6"><label asp-for="HostPort"></label><input asp-for="HostPort" class="form-control" placeholder="e.g. 18080" /><span asp-validation-for="HostPort"></span><div class="form-text">Choose a free port on the dashboard host.</div></div><div class="col-md-6"><label asp-for="ContainerPort"></label><input asp-for="ContainerPort" class="form-control" placeholder="e.g. 5055" /><span asp-validation-for="ContainerPort"></span><div class="form-text">Use the port your app actually listens on inside the container.</div></div></div>
+        <div class="form-text mt-3">Docker Engine must be installed and running on the dashboard host. The portal process must be allowed to use it. The host port is published on all host interfaces.</div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Review container</button></div>
+    </form>
+</section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

@@ -1,0 +1,20 @@
+@model DockerDashboardViewModel
+@{ ViewData["Title"] = "Docker Deployments"; }
+<div class="page-heading"><div><div class="eyebrow">CONTAINER OPERATIONS</div><h1>Docker Deployments</h1><p>View images and containers on a selected Docker server.</p></div><div class="d-flex gap-2"><a class="btn btn-outline-secondary" asp-controller="DockerContainers" asp-action="Index">Build image from source</a><a class="btn btn-primary" asp-action="Create" asp-route-context="@Model.Context">Deploy image</a></div></div>
+@if (Model.Error is not null) { <div class="alert alert-warning" role="alert">@Model.Error</div> }
+@if (Model.Contexts.Count > 0) {
+<section class="panel mb-4"><div class="form-body"><form asp-action="Index" method="get" class="row g-3 align-items-end"><div class="col-md-6"><label for="docker-context" class="form-label">Docker server</label><select id="docker-context" name="context" class="form-select">@foreach (var item in Model.Contexts) { <option value="@item.Name" selected="@(item.Name == Model.Context)">@item.Name — @item.Description</option> }</select></div><div class="col-auto"><button type="submit" class="btn btn-outline-primary">Load server</button></div></form><p class="form-text mb-0 mt-2">Servers come from Docker contexts configured on the dashboard host.</p></div></section>
+}
+<section class="panel"><div class="panel-heading"><h2>Containers <span class="count-pill">@Model.Containers.Count</span></h2></div>
+@if (Model.Containers.Count == 0) { <div class="empty-state"><h3>No containers found</h3><p>Deploy an image to create a container on this server.</p></div> }
+else { <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th>Actions</th></tr></thead><tbody>
+@foreach (var item in Model.Containers) { <tr><td><strong>@item.Name</strong><small class="cell-subtitle">@item.Id[..Math.Min(12, item.Id.Length)]</small></td><td class="font-monospace">@item.Image</td><td><partial name="_Status" model="@(item.Status.StartsWith("Up") ? "Online" : "Offline")" /> <small>@item.Status</small></td><td>@item.Ports</td><td><div class="table-actions"><a asp-action="Logs" asp-route-context="@Model.Context" asp-route-id="@item.Id">Logs</a>
+    @foreach (var operation in new[] { "start", "stop", "restart" }) { <form asp-action="Manage" method="post" data-busy><input type="hidden" name="context" value="@Model.Context" /><input type="hidden" name="id" value="@item.Id" /><input type="hidden" name="operation" value="@operation" /><button type="submit" class="btn-link">@operation</button></form> }
+    @if (item.CanRollback) { <form asp-action="Rollback" method="post" onsubmit="return confirm('Restore the previous container version?');" data-busy><input type="hidden" name="context" value="@Model.Context" /><input type="hidden" name="id" value="@item.Id" /><button type="submit" class="btn-link">Rollback</button></form> }
+    <form asp-action="Manage" method="post" onsubmit="return confirm('Delete this container? Its image and volumes will remain.');" data-busy><input type="hidden" name="context" value="@Model.Context" /><input type="hidden" name="id" value="@item.Id" /><input type="hidden" name="operation" value="delete" /><button type="submit" class="btn-link text-danger">Delete</button></form></div></td></tr> }
+</tbody></table></div> }
+</section>
+<section class="panel mt-4"><div class="panel-heading"><h2>Images <span class="count-pill">@Model.Images.Count</span></h2></div>
+@if (Model.Images.Count == 0) { <div class="empty-state"><p>No tagged images on this server.</p></div> }
+else { <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Image</th><th>ID</th><th>Size</th><th></th></tr></thead><tbody>@foreach (var image in Model.Images) { <tr><td class="font-monospace">@image.Name</td><td class="font-monospace">@image.Id[..Math.Min(19, image.Id.Length)]</td><td>@image.Size</td><td><a asp-action="Create" asp-route-context="@Model.Context" asp-route-image="@image.Name">Deploy →</a></td></tr> }</tbody></table></div> }
+</section>

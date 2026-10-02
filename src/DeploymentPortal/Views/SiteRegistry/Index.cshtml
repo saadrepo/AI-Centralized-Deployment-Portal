@@ -1,0 +1,22 @@
+@model IReadOnlyList<DeploymentPortal.Services.RegistryMapping>
+@{ ViewData["Title"] = "Sites Registry"; }
+<div class="page-heading"><div><div class="eyebrow">APPLICATION CATALOG</div><h1>Sites Registry</h1><p>Configured applications and their deployment destinations.</p></div></div>
+<p class="soft-note p-3">PreStaged packages must already exist on each destination server. Deploy opens the existing remote Review flow; deployment requires confirmation.</p>
+<section class="panel">
+    <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>Application</th><th>Source Provider</th><th>Source Path</th><th>Server / Environment</th><th>IIS Site</th><th>Target Path</th><th>Readiness</th><th>Deploy</th></tr></thead>
+        <tbody>
+        @foreach (var row in Model)
+        {
+            <tr>
+                <td><a asp-action="Details" asp-route-key="@row.Application.Key">@row.Application.DisplayName</a></td>
+                <td>@row.Application.SourceProvider</td><td class="text-break">@(string.IsNullOrWhiteSpace(row.Application.SourceReference) ? "Not configured" : row.Application.SourceReference)</td>
+                <td>@(row.Server?.DisplayName ?? "Not configured")<small class="cell-subtitle">@row.Server?.Environment</small></td>
+                <td>@row.Destination?.SiteName</td><td class="text-break">@row.Destination?.TargetPath</td><td>@row.Readiness</td>
+                <td>@if (row.Form is not null) { <partial name="_RegistryDeploy" model="row.Form" /> } else { <button class="btn btn-outline-secondary" disabled>Deploy</button> }</td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    @if (Model.Count == 0) { <div class="empty-state"><h2>No applications configured</h2><p>Add applications to sites-registry.json.</p></div> }
+</section>

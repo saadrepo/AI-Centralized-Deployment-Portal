@@ -1,0 +1,14 @@
+<div class="assistant-toolbar" role="group" aria-label="Dashboard search and AI assistant">
+    <div class="assistant-field">
+        <partial name="_Icon" model='@("search")' />
+        <label class="visually-hidden" for="assistant-search">Search servers, deployments, or ask AI</label>
+        <input id="assistant-search" class="form-control" type="text" maxlength="1000" placeholder="Search servers, deployments, or ask AI..." aria-describedby="assistant-demo-note" />
+        <button type="button" class="btn assistant-mic" data-assistant-mic aria-label="Start demo microphone" aria-pressed="false">
+            <partial name="_Icon" model='@("mic")' />
+            <span class="assistant-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </button><span class="assistant-processing" role="status" hidden><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span class="visually-hidden">Processing demo request</span></span><button type="button" class="btn assistant-cancel" aria-label="Cancel demo processing" hidden>&times;</button>
+    </div>
+    <button type="button" class="btn assistant-launch" data-bs-toggle="offcanvas" data-bs-target="#ai-assistant" aria-controls="ai-assistant"><partial name="_Icon" model='@("sparkles")' /> AI Assistant</button>
+</div>
+<div id="assistant-demo-note" class="visually-hidden"><span data-assistant-status role="status">Text deployment preparation is available. Voice is a demo.</span></div>
+

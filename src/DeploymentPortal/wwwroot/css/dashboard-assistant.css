@@ -1,0 +1,61 @@
+.assistant-toolbar{display:flex;gap:12px;align-items:center}
+.assistant-field{display:flex;align-items:center;gap:4px;min-width:0;flex:1;padding:4px 8px;background:#f8faff;border:1px solid var(--border);border-radius:9px;box-shadow:0 2px 8px #244a8a08}
+.assistant-field>.ui-icon{margin-left:6px;color:var(--muted)}
+.assistant-field .form-control{min-width:0;border:0;background:transparent;box-shadow:none;padding:10px 8px;font-size:12px}
+.assistant-field:focus-within{border-color:#7555e9;box-shadow:0 0 0 3px #7555e91a}
+.assistant-launch{background:linear-gradient(120deg,#335dbb,#7043c5);border:0;color:#fff;white-space:nowrap}
+.assistant-launch:hover,.assistant-launch:focus-visible{background:#5535a5;color:#fff}
+.assistant-mic{padding:10px;color:#52698b;flex-shrink:0;min-width:40px;min-height:40px}
+.assistant-mic .ui-icon,.assistant-composer .assistant-launch .ui-icon{margin:0}
+.assistant-demo-note{font-size:11px;color:var(--muted);margin:8px 0 24px}
+.assistant-drawer{--bs-offcanvas-width:440px;max-width:100%;background:#f8faff;color:var(--ink);box-shadow:-12px 0 40px #102d5726}
+.assistant-drawer .offcanvas-header,.assistant-composer{border-color:var(--border)!important}
+.assistant-drawer .offcanvas-body{min-height:0}
+.assistant-drawer p{font-size:12px}
+.assistant-beta{background:#eee8fd;color:#6336ae;font-size:10px}
+.assistant-example{white-space:normal}
+.assistant-message{padding:12px 14px;border:1px solid var(--border);border-radius:9px;margin-bottom:12px;font-size:12px;overflow-wrap:anywhere;white-space:pre-wrap}
+.assistant-message-user{background:#e7efff;margin-left:24px}
+.assistant-message-demo{background:#f1edfc;margin-right:24px}
+.assistant-wave{display:none;height:18px;align-items:center;justify-content:center;gap:3px}
+.assistant-wave i{width:3px;height:14px;border-radius:3px;background:currentColor;animation:assistant-pulse .8s ease-in-out infinite alternate}
+.assistant-wave i:nth-child(2){animation-delay:.2s}.assistant-wave i:nth-child(3){animation-delay:.4s}
+.assistant-mic[aria-pressed="true"]{color:#7043c5;background:#eee8fd}
+.assistant-mic[aria-pressed="true"] .ui-icon{display:none}
+.assistant-mic[aria-pressed="true"] .assistant-wave{display:flex}
+@keyframes assistant-pulse{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+@media(prefers-reduced-motion:reduce){.assistant-wave i{animation:none}}
+@media(max-width:575px){.assistant-toolbar{flex-wrap:wrap}.assistant-toolbar>.assistant-field{flex-basis:100%}.assistant-toolbar>.assistant-launch{width:100%}}
+
+/* Dashboard top bar and the four simulated voice states. */
+.assistant-topbar{gap:20px;background:linear-gradient(110deg,#edf5ff,#eaf2ff);min-height:82px;height:auto;padding-top:12px;padding-bottom:12px}
+.assistant-topbar>.d-flex{flex-shrink:0}.assistant-topbar .breadcrumb-label{white-space:nowrap}
+.assistant-topbar .assistant-toolbar{flex:1;min-width:0;gap:24px}
+.assistant-topbar .assistant-field{border-radius:32px;padding:3px 5px 3px 12px;background:linear-gradient(100deg,#fff,#f9fbff);border-color:#cbd8ec;box-shadow:0 3px 16px #365eaa12}
+.assistant-topbar .form-control{font-size:14px;height:42px;color:#102752}
+.assistant-topbar .form-control::placeholder{font-size:14px;color:#607ba5}
+.assistant-topbar .assistant-mic{border-radius:50%;width:44px;height:44px;background:#eaf0f7;color:#58749e;padding:10px}
+.assistant-topbar .assistant-mic .ui-icon{width:24px;height:24px}
+.assistant-launch{background:linear-gradient(110deg,#00a8ee,#315cff 52%,#a020fa);box-shadow:0 4px 12px #6452df20}
+.assistant-topbar .assistant-launch{padding:16px 20px;font-size:13px}
+.assistant-topbar-tools{display:flex;align-items:center;gap:18px}
+.assistant-utility{display:flex;align-items:center;justify-content:center;min-width:44px;height:38px;border:0;border-left:1px solid #d6e3f7;background:transparent;color:#5879aa}
+button.assistant-utility span{border:2px solid currentColor;border-radius:50%;width:23px;height:23px;line-height:19px;font-weight:700}
+.assistant-notification .ui-icon{width:25px;height:25px}
+.assistant-profile{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.assistant-profile .avatar{width:40px;height:40px;background:#0073ff;color:white;font-size:14px}
+.assistant-profile strong{display:block;font-size:13px;color:#102752}
+.assistant-profile small{display:block;font-size:11px;color:#58749e;margin-top:3px}
+.assistant-profile>span:last-child{margin-left:14px;color:#58749e}
+.assistant-mic[aria-pressed="true"],.assistant-topbar .assistant-mic[aria-pressed="true"]{background:linear-gradient(120deg,#7452ff,#ac23ff);color:white;box-shadow:0 0 0 7px #9256ff15,0 0 0 13px #9256ff09}
+.assistant-wave{height:24px;gap:3px}.assistant-wave i{height:22px;background:white}
+.assistant-wave i:nth-child(1),.assistant-wave i:nth-child(5){height:12px}
+.assistant-wave i:nth-child(3){height:28px}.assistant-wave i:nth-child(4){animation-delay:.3s}.assistant-wave i:nth-child(5){animation-delay:.1s}
+.assistant-processing{color:#8545ff;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#f1ebff;flex-shrink:0}
+.assistant-processing:not([hidden]){display:flex}
+.assistant-cancel{font-size:28px;line-height:1;color:#839abd;padding:4px 12px}
+.assistant-field[data-voice-state="listening"],.assistant-field[data-voice-state="detected"]{box-shadow:0 0 0 7px #9565ff08,0 3px 16px #365eaa12}
+@media(min-width:1200px) and (max-width:1500px){.assistant-topbar{padding-left:20px;padding-right:20px;gap:14px}.assistant-topbar .assistant-toolbar{gap:12px}.assistant-topbar-tools{gap:8px}.assistant-profile small{max-width:110px;white-space:normal}.assistant-profile>span:last-child{display:none}}
+@media(max-width:1199px){.assistant-topbar{flex-wrap:wrap;gap:12px}.assistant-topbar .assistant-toolbar{order:3;flex-basis:100%}.assistant-topbar-tools{margin-left:auto}}
+@media(max-width:575px){.assistant-topbar .assistant-toolbar{flex-wrap:nowrap;gap:8px}.assistant-topbar .assistant-toolbar>.assistant-field{flex-basis:auto}.assistant-topbar .assistant-toolbar>.assistant-launch{width:auto;font-size:11px;padding:14px 10px}.assistant-topbar .assistant-launch>.ui-icon{display:none}.assistant-topbar .form-control,.assistant-topbar .form-control::placeholder{font-size:12px}.assistant-profile div,.assistant-profile>span:last-child,.assistant-notification{display:none}.assistant-topbar-tools{gap:8px}}
+@media(prefers-reduced-motion:reduce){.assistant-processing .spinner-border{animation:none}}

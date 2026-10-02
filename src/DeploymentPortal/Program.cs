@@ -4,6 +4,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+// Registry defaults are isolated from the existing portal configuration.
+var registryConfiguration = new ConfigurationBuilder().SetBasePath(builder.Environment.ContentRootPath)
+    .AddJsonFile("sites-registry.json", optional: true, reloadOnChange: true)
+    .AddConfiguration(builder.Configuration).Build();
+builder.Services.AddOptions<SiteRegistryOptions>().Bind(registryConfiguration.GetSection("SitesRegistry"));
+builder.Services.AddScoped<ISiteRegistry, ConfigurationSiteRegistry>();
+builder.Services.AddScoped<IRegistrySourceProvider, PreStagedSourceProvider>();
+builder.Services.AddScoped<SiteRegistryDraftService>();
+builder.Services.AddScoped<IAssistantCommandParser, AssistantCommandParser>();
+builder.Services.AddScoped<AssistantDeploymentResolver>();
 
 // Add services to the container.
 builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));

@@ -1,0 +1,33 @@
+<div class="offcanvas offcanvas-end assistant-drawer" tabindex="-1" id="ai-assistant" aria-labelledby="assistant-title">
+    <div class="offcanvas-header border-bottom">
+        <div class="d-flex align-items-center gap-2"><partial name="_Icon" model='@("sparkles")' /><h2 class="offcanvas-title fs-5" id="assistant-title">AI Assistant</h2><span class="badge assistant-beta">Beta</span></div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close AI Assistant"></button>
+    </div>
+    <div class="offcanvas-body">
+        <p class="soft-note p-3 rounded">Text commands can prepare a registry deployment and open Review for remote checks. You must confirm before deployment. Voice is a demo; no LLM is connected.</p>
+        <h3 class="fs-6">What would you like to do?</h3>
+        <p>Try an example or type your own request.</p>
+        <div class="d-grid gap-2 mb-4" aria-label="Example commands">
+            @foreach (var command in new[] { "Deploy Portal on DEV server", "Show available sites to deploy", "Check IIS status on DEV server", "Show last 5 deployments", "Restart IIS for Portal" })
+            {
+                <button type="button" class="btn btn-outline-secondary assistant-example text-start">@command</button>
+            }
+        </div>
+        <div id="assistant-messages" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions"></div>
+    </div>
+    <div class="assistant-composer border-top p-3">
+        <form id="assistant-form" asp-controller="Assistant" asp-action="Prepare" method="post" data-review-url="@Url.Action("Review", "Deployments")">
+            <label for="assistant-message" class="visually-hidden">Message AI Assistant</label>
+            <div class="assistant-field">
+                <input id="assistant-message" class="form-control" type="text" maxlength="1000" placeholder="Ask about your deployments..." autocomplete="off" />
+                <button type="button" class="btn assistant-mic" data-assistant-mic aria-label="Start demo microphone" aria-pressed="false">
+                    <partial name="_Icon" model='@("mic")' />
+                    <span class="assistant-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                </button>
+                <button type="submit" class="btn assistant-launch" id="assistant-send" aria-label="Send command" disabled><partial name="_Icon" model='@("arrow")' /></button>
+            </div>
+        </form>
+        <p class="small mt-2 mb-0" data-assistant-status role="status">Text deployment preparation is available. Voice is a demo.</p>
+    </div>
+</div>
+<noscript><p class="soft-note p-2">Enable JavaScript to use the assistant UI demo.</p></noscript>

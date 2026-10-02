@@ -1,0 +1,10 @@
+@model DeploymentForm
+<form asp-controller="Deployments" asp-action="Review" method="post" data-busy>
+    @foreach (var field in new Dictionary<string, string?> {
+        ["ServerId"] = Model.ServerId.ToString(), ["Environment"] = Model.Environment,
+        ["SiteName"] = Model.SiteName, ["ApplicationName"] = Model.ApplicationName,
+        ["AppPoolName"] = Model.AppPoolName, ["SourcePath"] = Model.SourcePath,
+        ["TargetPath"] = Model.TargetPath, ["SitePort"] = Model.SitePort.ToString(), ["SiteHostName"] = Model.SiteHostName })
+    { <input type="hidden" name="@field.Key" value="@field.Value" /> }
+    <button type="submit" class="btn btn-primary" title="Review this deployment before confirming">Deploy</button>
+</form>

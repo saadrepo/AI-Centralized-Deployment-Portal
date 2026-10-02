@@ -10,6 +10,8 @@
 }
 <div class="page-heading dashboard-heading"><div><div class="eyebrow">YOUR OPERATIONS, CONNECTED</div><h1>Deployment overview<span class="heading-dot">.</span></h1><p>A clear view of your infrastructure. A better way to ship.</p></div><div class="dashboard-actions"><a class="btn btn-outline-secondary" asp-controller="Servers" asp-action="Create"><partial name="_Icon" model='@("plus")' /> Add server</a><a class="btn btn-primary" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> New deployment</a></div></div>
 
+<partial name="_DashboardAssistant" />
+
 <section class="release-hero">
     <div class="hero-copy"><span class="hero-label"><span></span> WINDOWS DEPLOYMENT WORKSPACE </span><h2>From ready to released.<br /><span>With every step covered.</span></h2><p>Connect your servers, review your release, and deploy to IIS with a retained backup.</p><a asp-controller="Deployments" asp-action="Create">Create a deployment <partial name="_Icon" model='@("arrow")' /></a></div>
     <div class="release-map" aria-label="Deployment workflow: connect, back up, deploy"><div class="map-orbit orbit-one"></div><div class="map-orbit orbit-two"></div><div class="map-grid"></div><div class="map-core"><partial name="_Icon" model='@("server")' /><span>IIS</span></div><div class="map-node node-connect"><span class="node-icon"><partial name="_Icon" model='@("activity")' /></span><div>Connect<small>Verify your target</small></div><b>01</b></div><div class="map-node node-backup"><span class="node-icon"><partial name="_Icon" model='@("shield")' /></span><div>Back up<small>Preserve the previous release</small></div><b>02</b></div><div class="map-node node-deploy"><span class="node-icon"><partial name="_Icon" model='@("rocket")' /></span><div>Deploy<small>Release with confidence</small></div><b>03</b></div></div>
@@ -36,3 +38,10 @@
 <section class="panel release-panel"><div class="panel-heading"><div><span class="section-kicker">RELEASE ACTIVITY</span><h2>Recent deployments</h2></div><a asp-controller="Deployments" asp-action="Index">View history <partial name="_Icon" model='@("arrow")' /></a></div><partial name="_DeploymentTable" model="Model.Deployments" /></section>
 
 <section class="environment-strip"><div><span class="section-kicker">YOUR WORKSPACE</span><h2>Across every environment</h2></div><div class="environment-counts">@foreach (var env in Environments.All) { <a asp-controller="Servers" asp-action="Index"><span>@env</span><strong>@Model.Servers.Count(s => s.Environment == env)<small> servers</small></strong></a> }</div></section>
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/dashboard-assistant.css" asp-append-version="true" />
+}
+@section Scripts {
+    <script src="~/js/dashboard-assistant.js" asp-append-version="true"></script>
+}

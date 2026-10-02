@@ -1,6 +1,9 @@
 @model string
 <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 @switch (Model) {
+case "mic": <rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/> break;
+case "sparkles": <path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4"/> break;
+case "search": <circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/> break;
 case "terminal": <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3m6 0h5"/> break;
 case "container": <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M8 5v14m8-14v14"/> break;
 case "server": <rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/> break;

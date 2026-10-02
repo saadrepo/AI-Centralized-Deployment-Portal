@@ -1,0 +1,17 @@
+@model IReadOnlyList<DeploymentPortal.Services.RegistryMapping>
+@{ ViewData["Title"] = "Registry application"; var app = Model[0].Application; }
+<div class="page-heading"><div><div class="eyebrow">SITES REGISTRY</div><h1>@app.DisplayName</h1><p>Complete configured mapping. Remote files and IIS are checked during Review.</p></div><a asp-action="Index" class="btn btn-outline-secondary">Back to registry</a></div>
+<section class="panel mb-4"><dl class="detail-grid"><dt>Key</dt><dd>@app.Key</dd><dt>Source provider</dt><dd>@app.SourceProvider</dd><dt>Source reference / remote source path</dt><dd class="text-break">@(string.IsNullOrWhiteSpace(app.SourceReference) ? "Not configured" : app.SourceReference)</dd></dl></section>
+@foreach (var row in Model)
+{
+    <section class="panel mb-4">
+        <div class="panel-heading"><h2>@(row.Server?.DisplayName ?? "Unconfigured destination")</h2><span class="environment">@row.Server?.Environment</span></div>
+        <dl class="detail-grid">
+            <dt>Server ID</dt><dd>@row.Destination?.ServerId</dd><dt>Host</dt><dd>@row.Server?.HostNameOrIp</dd>
+            <dt>IIS site</dt><dd>@row.Destination?.SiteName</dd><dt>Application path</dt><dd>@row.Destination?.ApplicationName</dd>
+            <dt>Target physical path</dt><dd class="text-break">@row.Destination?.TargetPath</dd><dt>Application pool</dt><dd>@(row.Destination?.ApplicationPool ?? "Assigned or automatically created dedicated pool")</dd>
+            <dt>New-site HTTP port</dt><dd>@row.Destination?.SitePort</dd><dt>New-site hostname</dt><dd>@(row.Destination?.SiteHostName ?? "IP and port")</dd><dt>Readiness</dt><dd>@row.Readiness</dd>
+        </dl>
+        <div class="form-body pt-0">@if (row.Form is not null) { <partial name="_RegistryDeploy" model="row.Form" /> } else { <button class="btn btn-outline-secondary" disabled>Deploy</button> }</div>
+    </section>
+}

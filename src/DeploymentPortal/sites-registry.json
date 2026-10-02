@@ -1,0 +1,51 @@
+{
+  "SitesRegistry": {
+    "Applications": [
+      {
+        "Key": "Portal",
+        "DisplayName": "Portal",
+        "SourceProvider": "PreStaged",
+        "SourceReference": "C:\\DeploymentPackages\\MyApp\\release-001\\MyMvcLandingPage",
+        "Destinations": [
+          {
+            "ServerId": 6,
+            "SiteName": "Portal",
+            "TargetPath": "C:\\inetpub\\apps\\MyApp",
+            "ApplicationName": "/",
+            "ApplicationPool": null
+          }
+        ]
+      },
+      {
+        "Key": "API",
+        "DisplayName": "API",
+        "SourceProvider": "PreStaged",
+        "SourceReference": "",
+        "Destinations": [
+          {
+            "ServerId": 0,
+            "SiteName": "API",
+            "TargetPath": "",
+            "ApplicationName": "/",
+            "ApplicationPool": null
+          }
+        ]
+      },
+      {
+        "Key": "Finance",
+        "DisplayName": "Finance",
+        "SourceProvider": "PreStaged",
+        "SourceReference": "",
+        "Destinations": [
+          {
+            "ServerId": 0,
+            "SiteName": "Finance",
+            "TargetPath": "",
+            "ApplicationName": "/",
+            "ApplicationPool": null
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -20,6 +20,10 @@ public sealed class RegistryApplication
 public sealed class RegistryDestination
 {
     public int ServerId { get; set; }
+    public string? ServerHostNameOrIp { get; set; }
+    public bool Matches(Server server) => !string.IsNullOrWhiteSpace(ServerHostNameOrIp)
+        ? ServerId == 0 && string.Equals(ServerHostNameOrIp.Trim(), server.HostNameOrIp, StringComparison.OrdinalIgnoreCase)
+        : ServerId == server.Id;
     public string SiteName { get; set; } = "";
     public string TargetPath { get; set; } = "";
     public string ApplicationName { get; set; } = "/";
@@ -64,11 +68,14 @@ public sealed class SiteRegistryDraftService(ISiteRegistry registry, IServerServ
         var app = registry.Find(key) ?? throw new ArgumentException("Registry application was not found.");
         if (string.IsNullOrWhiteSpace(app.Key) || string.IsNullOrWhiteSpace(app.DisplayName))
             throw new ArgumentException("Application key and display name are required.");
-        var destinations = app.Destinations.Where(x => x.ServerId == serverId).ToList();
-        if (destinations.Count != 1) throw new ArgumentException("Configure exactly one destination per application and server.");
-        var destination = destinations[0];
         var server = serverId > 0 ? await servers.FindAsync(serverId) : null;
         if (server is null) throw new ArgumentException("Configure an existing registered ServerId.");
+        var destinations = app.Destinations.Where(x => x.Matches(server)).ToList();
+        if (destinations.Count == 0) throw new ArgumentException($"No registry destination matches '{server.DisplayName}' (ID {server.Id}). Update the application's ServerId or ServerHostNameOrIp in Sites Registry.");
+        if (destinations.Count != 1) throw new ArgumentException("Configure exactly one destination per application and server.");
+        var destination = destinations[0];
+        if (!string.IsNullOrWhiteSpace(destination.ServerHostNameOrIp))
+            await ResolveDestinationServerAsync(destination);
         var provider = providers.SingleOrDefault(x => string.Equals(x.Name, app.SourceProvider, StringComparison.OrdinalIgnoreCase))
             ?? throw new ArgumentException("Unsupported source provider. Use PreStaged.");
         var form = new DeploymentForm
@@ -93,7 +100,11 @@ public sealed class SiteRegistryDraftService(ISiteRegistry registry, IServerServ
                 rows.Add(new(app, null, null, null, "Not configured: add a server destination."));
             foreach (var destination in app.Destinations)
             {
-                try { rows.Add(await PrepareAsync(app.Key, destination.ServerId)); }
+                try
+                {
+                    var resolved = await ResolveDestinationServerAsync(destination);
+                    rows.Add(await PrepareAsync(app.Key, resolved.Id));
+                }
                 catch (ArgumentException ex)
                 {
                     var server = destination.ServerId > 0 ? await servers.FindAsync(destination.ServerId) : null;
@@ -102,5 +113,17 @@ public sealed class SiteRegistryDraftService(ISiteRegistry registry, IServerServ
             }
         }
         return rows;
+    }
+    private async Task<Server> ResolveDestinationServerAsync(RegistryDestination destination)
+    {
+        if (string.IsNullOrWhiteSpace(destination.ServerHostNameOrIp))
+            return await servers.FindAsync(destination.ServerId)
+                ?? throw new ArgumentException("Configure an existing registered ServerId.");
+        if (destination.ServerId != 0)
+            throw new ArgumentException("Configure either ServerId or ServerHostNameOrIp, not both.");
+        var matches = (await servers.ListAsync()).Where(destination.Matches).ToList();
+        if (matches.Count != 1)
+            throw new ArgumentException($"Registry host '{destination.ServerHostNameOrIp}' must match exactly one registered server; found {matches.Count}.");
+        return matches[0];
     }
 }

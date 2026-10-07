@@ -105,17 +105,19 @@
     });
     drawer.addEventListener('shown.bs.offcanvas', () => input.focus());
     drawer.addEventListener('hide.bs.offcanvas', stopListening);
-    search.addEventListener('keydown', event => {
+    function submitOnEnter(event) {
         if (event.key === 'Enter' && !event.isComposing) {
             event.preventDefault();
-            const command = search.value.trim();
+            const command = event.currentTarget.value.trim();
             if (!command || busy || event.repeat) return;
             bootstrap.Offcanvas.getOrCreateInstance(drawer).show();
             input.value = command;
             syncSend();
-            form.requestSubmit();
+            form.requestSubmit(send);
         }
-    });
+    }
+    search.addEventListener('keydown', submitOnEnter);
+    input.addEventListener('keydown', submitOnEnter);
     document.querySelectorAll('.assistant-example').forEach(button => button.addEventListener('click', () => {
         input.value = button.textContent.trim();
         syncSend();
@@ -143,7 +145,7 @@
         try {
             const payload = new FormData(form);
             payload.set('text', request);
-            const response = await fetch(form.action, { method: 'POST', body: payload, credentials: 'same-origin' });
+            const response = await fetch(form.action, { method: 'POST', body: payload, credentials: 'same-origin', signal: AbortSignal.timeout(30000) });
             const result = await response.json().catch(() => null);
             if (!response.ok) throw new Error(result?.message || 'Could not prepare the request. Refresh the page and try again.');
             if (result?.intent !== 'DeploySite' || !result.fields) throw new Error('Unexpected assistant response. Nothing was submitted for review.');
@@ -162,8 +164,11 @@
             announce('Opening the existing deployment Review. Confirmation is still required.');
             review.submit();
         } catch (error) {
-            addMessage('demo', `Assistant: ${error.message || 'Request failed. Please try again.'}`);
-            announce('Request was not submitted for review.');
+            const message = error.name === 'TimeoutError'
+                ? 'Server resolution timed out. Please try again.'
+                : error.message || 'Request failed. Please try again.';
+            addMessage('demo', `Assistant: ${message}`);
+            announce(`Could not open deployment Review: ${message}`);
             busy = false;
             syncSend();
             form.removeAttribute('aria-busy');

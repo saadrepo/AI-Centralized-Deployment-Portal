@@ -9,6 +9,35 @@ namespace DeploymentPortal.Tests;
 public class AssistantDeploymentTests
 {
     [Theory]
+    [InlineData("DEV server")]
+    [InlineData("Development")]
+    [InlineData("dev-host")]
+    public async Task HostDestinationFollowsReregisteredServerWithoutFollowingOldId(string selector)
+    {
+        var app = new RegistryApplication { Key = "Portal", DisplayName = "Portal", SourceReference = @"C:\Packages\Portal",
+            Destinations = [new() { ServerHostNameOrIp = "DEV-HOST", SiteName = "Portal", TargetPath = @"C:\Sites\Portal" }] };
+        var inventory = new List<Server> { new() { Id = 42, DisplayName = "Dev Server", HostNameOrIp = "dev-host", Environment = "Development" } };
+        var registry = new Registry([app]);
+        var servers = new Servers(inventory);
+        var drafts = new SiteRegistryDraftService(registry, servers, [new PreStagedSourceProvider()], Options.Create(new AutomationOptions()));
+        var resolver = new AssistantDeploymentResolver(registry, servers, drafts);
+        Assert.Equal(42, (await resolver.ResolveAsync(new(AssistantIntent.DeploySite, "Portal", selector))).ServerId);
+        inventory[0] = new() { Id = 42, DisplayName = "Other", HostNameOrIp = "other-host", Environment = "Development" };
+        inventory.Add(new() { Id = 137, DisplayName = "Dev Server", HostNameOrIp = "dev-host", Environment = "Development" });
+        var form = await resolver.ResolveAsync(new(AssistantIntent.DeploySite, "Portal", selector));
+        Assert.Equal(137, form.ServerId);
+        Assert.Null(form.ConfirmationToken);
+        Assert.Equal(137, Assert.Single(await drafts.ListAsync()).Form!.ServerId);
+        await Assert.ThrowsAsync<ArgumentException>(() => drafts.PrepareAsync("Portal", 42));
+        inventory.Add(new() { Id = 248, DisplayName = "Duplicate", HostNameOrIp = "dev-host", Environment = "Development" });
+        await Assert.ThrowsAsync<ArgumentException>(() => resolver.ResolveAsync(new(AssistantIntent.DeploySite, "Portal", selector)));
+        Assert.Null(Assert.Single(await drafts.ListAsync()).Form);
+        inventory.RemoveAll(x => x.HostNameOrIp == "dev-host");
+        Assert.Null(Assert.Single(await drafts.ListAsync()).Form);
+        await Assert.ThrowsAsync<ArgumentException>(() => resolver.ResolveAsync(new(AssistantIntent.DeploySite, "Portal", selector)));
+    }
+
+    [Theory]
     [InlineData("Deploy Portal on DEV server", "Portal", "DEV server")]
     [InlineData(" deploy API on Dev Server ", "API", "Dev Server")]
     public void ParsesStructuredIntent(string text, string app, string server)

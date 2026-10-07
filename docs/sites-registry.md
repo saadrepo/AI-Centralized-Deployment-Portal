@@ -25,6 +25,7 @@ Example application entry (replace ID and paths with actual values):
 ```
 
 - Get the existing server ID from its `/Servers/Details/{id}` URL. Environment is always read from that registered server.
+- For servers that may be deleted and registered again, replace `ServerId` with `"ServerHostNameOrIp": "your-registered-host"`. The registry resolves the current database ID on each request using that exact hostname/IP (case-insensitive). Configure only one selector. Missing or duplicate registered hosts disable preparation; no other server is chosen. Both the assistant and registry use this mapping. If the host address changes, update the registry explicitly.
 - SourceReference is an absolute Windows folder **on the destination server**, containing published files including web.config. It is not a folder on the portal host. For multiple destinations, this source path must exist on each server.
 - TargetPath is the remote IIS physical path; use the current physical path for existing sites. Source, target, and configured backup directories must not overlap.
 - ApplicationName defaults to `/`. ApplicationPool is optional. Port defaults to 8080 and hostname is optional; these binding settings apply only to new sites.

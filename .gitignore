@@ -41,4 +41,4 @@ Thumbs.db
 
 # Temporary files
 *.tmp
-*.temp**/appsettings.json
+*.temp

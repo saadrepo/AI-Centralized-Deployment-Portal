@@ -8,7 +8,7 @@
         "SourceReference": "C:\\DeploymentPackages\\MyApp\\release-001\\MyMvcLandingPage",
         "Destinations": [
           {
-            "ServerId": 6,
+            "ServerHostNameOrIp": "192.168.3.67",
             "SiteName": "Portal",
             "TargetPath": "C:\\inetpub\\apps\\MyApp",
             "ApplicationName": "/",

@@ -47,7 +47,7 @@ public sealed class AssistantDeploymentResolver(ISiteRegistry registry, IServerS
                 {
                     "dev" => "Development", "prod" => "Production", "stage" => "Staging", _ => name
                 };
-                matches = registered.Where(x => Equal(x.Environment, environment) && app.Destinations.Any(d => d.ServerId == x.Id)).ToList();
+                matches = registered.Where(x => Equal(x.Environment, environment) && app.Destinations.Any(d => d.Matches(x))).ToList();
             }
         }
         if (matches.Count == 0) throw new ArgumentException($"No registered destination matches '{command.Server}' for {app.DisplayName}. Check Sites Registry and Servers.");

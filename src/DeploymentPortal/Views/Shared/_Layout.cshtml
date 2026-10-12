@@ -19,6 +19,7 @@
     <div class="workspace-label">WORKSPACE</div>
     <nav aria-label="Main navigation">
         <a class="nav-item @(controller is "Tfs" or "TfsReleases" ? "active" : "")" asp-controller="Tfs" asp-action="Index"><partial name="_Icon" model='@("grid")' /> TFS</a>
+        <a class="nav-item @(controller == "TfsGit" ? "active" : "")" asp-controller="TfsGit" asp-action="Index"><partial name="_Icon" model='@("grid")' /> TFS Git</a>
         <a class="nav-item @(controller == "Home" && action == "Index" ? "active" : "")" asp-controller="Home" asp-action="Index"><partial name="_Icon" model='@("grid")' /> Dashboard</a>
         <a class="nav-item @(controller == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers</a>
         <a class="nav-item @(controller == "Sites" ? "active" : "")" asp-controller="Sites" asp-action="Index"><partial name="_Icon" model='@("server")' /> IIS Sites</a>

@@ -45,6 +45,8 @@ builder.Services.AddHttpClient<ITfsService, TfsService>((services, client) =>
     UseDefaultCredentials = true,
     AllowAutoRedirect = false
 }).AddTypedClient<ITfsReleaseService, TfsReleaseService>();
+// Isolated, read-only Git client; HTTP is limited to the temporary internal PoC endpoint.
+builder.Services.AddTfsGitClient();
 builder.Services.AddHostedService<DeploymentWorker>();
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue<int>("Automation:DeploymentTimeoutSeconds", 900) + 120));
 

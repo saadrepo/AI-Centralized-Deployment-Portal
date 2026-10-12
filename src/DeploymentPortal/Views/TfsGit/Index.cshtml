@@ -1,0 +1,79 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsGitPageViewModel
+
+@{
+    ViewData["Title"] = "TFS Git";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="mb-0">TFS Git</h2>
+    <small class="text-muted">Read-only</small>
+</div>
+
+@if (Model.Error is not null)
+{
+    <div class="alert alert-danger" role="alert">@Model.Error</div>
+}
+else if (!Model.Repositories.Any())
+{
+    <div class="alert alert-secondary" role="status">No repositories found.</div>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-md-2 g-3">
+        @foreach (var repo in Model.Repositories)
+        {
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h5 class="card-title mb-1">@repo.Name</h5>
+                            <div>
+                                @if (!string.IsNullOrWhiteSpace(repo.DefaultBranchName))
+                                {
+                                    <span class="badge bg-primary" title="Default branch">@repo.DefaultBranchName</span>
+                                }
+                            </div>
+                        </div>
+                        <p class="card-text text-muted mb-2">Branches</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-borderless mb-0">
+                                <tbody>
+                                    @if (repo.BranchesError is not null)
+                                    {
+                                        <tr><td colspan="2"><div class="alert alert-danger" role="alert">@repo.BranchesError</div></td></tr>
+                                    }
+                                    else if (repo.Branches is null || !repo.Branches.Any())
+                                    {
+                                        <tr><td><em class="text-muted">no branches</em></td></tr>
+                                    }
+                                    else
+                                    {
+                                        foreach (var b in repo.Branches)
+                                        {
+                                            var name = b.Name ?? string.Empty;
+                                            var isDefault = string.Equals(name, repo.DefaultBranchName, StringComparison.Ordinal);
+                                            var isDev = string.Equals(name, "Dev", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "dev", StringComparison.OrdinalIgnoreCase);
+                                            <tr>
+                                                <td class="align-middle">@name</td>
+                                                <td class="text-end align-middle" style="width:1%;white-space:nowrap">
+                                                    @if (isDefault)
+                                                    {
+                                                        <span class="badge bg-success" title="Default branch">@repo.DefaultBranchName</span>
+                                                    }
+                                                    else if (isDev)
+                                                    {
+                                                        <span class="badge bg-info text-dark">Dev</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}

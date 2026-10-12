@@ -416,7 +416,7 @@ public class TfsManagementTests
     [InlineData(-1)]
     public async Task InvalidExistingBuildIdMakesNoRequest(int id)
     {
-        using var handler = new Handler(_ => throw new Exception("No request expected"));
+        using var handler = new Handler(request => Task.FromException<HttpResponseMessage>(new Exception("No request expected")));
         using var client = Client(handler);
         var controller = Controller(Service(client));
         Assert.IsType<ViewResult>(await controller.ReviewExistingBuild(id));

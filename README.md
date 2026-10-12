@@ -194,6 +194,16 @@ The PowerShell tests perform real filesystem copies in unique `.tools/ps-tests` 
 
 ## Security limitations
 
+### Temporary TFS Git HTTP PoC
+
+The read-only TFS Git integration uses `TfsGit:BaseUrl=http://netserver:8080/tfs/DefaultCollection`, project `deployment-portal-poc`, and API version `4.1`. HTTP is temporarily accepted only for that exact host, port, and collection (an optional trailing slash is allowed). Other HTTP endpoints, embedded credentials, query strings, fragments, and non-HTTP(S) schemes are rejected at startup. HTTPS endpoints remain configurable for the future migration. The separate `Tfs` configuration and PMSNZ build/release clients are unchanged.
+
+Git requests use GET only and are constrained to the configured origin and collection. Redirects are disabled, including redirects within the same server; a redirect is reported as an API failure. The client connects directly without system/environment HTTP proxies. The existing Windows runtime identity is supplied only for Negotiate/NTLM authentication within that collection; Basic authentication and manually supplied Authorization headers are not supported. No passwords or tokens are added to source configuration. Repository and branch failures show generic messages, with no upstream response body or exception detail displayed.
+
+**Temporary security risk:** Windows authentication over HTTP does not provide TLS encryption or server-certificate validation. Endpoint restrictions do not prevent DNS spoofing, network interception, NTLM relay, or tampering with repository/branch responses. Use only the trusted internal PoC network with a least-privileged identity granted repository read access, and keep portal access restricted. This is a temporary risk acceptance, not a production-secure connection.
+
+**HTTPS migration TODO:** Have the TFS/infrastructure administrator confirm an approved HTTPS hostname and port, or provision an IIS HTTPS binding with an organization-approved certificate. Confirm DNS, firewall access, certificate name/chain trust on the portal host, and Windows authentication under the portal runtime identity. Coordinate any TFS public URL changes with existing CI/CD owners. Then update only `TfsGit:BaseUrl` to the approved HTTPS collection URL, test repository/branch reads, and remove the HTTP exception and its tests. Keep certificate validation enabled and redirects disabled. Do not replace HTTP Windows authentication with a plaintext PAT/password as a workaround.
+
 This is an **unauthenticated, privileged internal prototype**. Default development profiles bind localhost. Do not expose it publicly or to untrusted users; anyone who can use the portal can invoke its permitted operations against configured servers. Anti-forgery protection is not authentication. `AllowedHosts` controls host headers, not user access. No RBAC, identity integration or advanced audit trail is included.
 
 Use only trusted published packages. Their application code runs on IIS with the application identity's permissions. A compromised dashboard host or privileged target administrator is outside the protection boundary. Protect the scripts, configuration, user-secrets file, data-protection keys and deployment roots with OS permissions. These limitations are intentional Phase 1 scope, not production readiness.

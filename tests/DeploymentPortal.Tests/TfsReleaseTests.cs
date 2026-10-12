@@ -196,7 +196,7 @@ public class TfsReleaseTests
     [InlineData(-1)]
     public async Task InvalidIdsMakeNoHttpRequests(int id)
     {
-        using var handler = new Handler(_ => throw new Exception("No request expected"));
+        using var handler = new Handler(request => Task.FromException<HttpResponseMessage>(new Exception("No request expected")));
         using var client = Client(handler);
         var service = Service(client);
         var controller = Controller(service);

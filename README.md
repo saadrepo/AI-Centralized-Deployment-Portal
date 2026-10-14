@@ -108,7 +108,7 @@ dotnet user-secrets set 'DevelopmentCredentials:Passwords:web-01.internal' '<tes
 
 Replace the example value locally. User secrets are **not encrypted**, and entering a password in a shell can leave it in shell history. For local use, you may edit the user-secrets file with a trusted editor instead. Do not paste actual credentials into tickets, screenshots, checked-in JSON or tool logs. Environment variables are also supported, but remain development-only configuration, not a vault.
 
-The runner passes credentials over redirected process standard input, not command-line arguments or temporary script files. It drains but does not log raw PowerShell output/errors. Non-Development environments use Windows DPAPI with a private NTFS credential store. See [Production WinRM setup](docs/production-winrm-credentials.md) for administrator provisioning, SOURCE VM commands, rotation and HTTPS migration. This does not add portal authentication or enable CD execution.
+The runner passes credentials over redirected process standard input, not command-line arguments or temporary script files. It drains but does not log raw PowerShell output/errors. Non-Development environments use Windows DPAPI with a private NTFS credential store. See [Production WinRM setup](docs/production-winrm-credentials.md) for administrator provisioning, SOURCE VM commands, rotation and HTTPS migration. The TFS Git/CI client uses a separate encrypted Windows credential store in Production; see [Production TFS authentication setup](docs/production-tfs-windows-credentials.md). This does not add portal authentication or enable CD execution.
 
 ## Prepare a test server
 

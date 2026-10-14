@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace DeploymentPortal.Services;
@@ -15,6 +16,7 @@ public static class TfsGitClientConfiguration
 
     public static IServiceCollection AddTfsGitClient(this IServiceCollection services)
     {
+        services.TryAddSingleton<ITfsWindowsCredentialProvider, TfsWindowsCredentialProvider>();
         services.AddOptions<TfsGitConnectionOptions>().BindConfiguration("TfsGit")
             .Validate(options => IsAllowedBaseUrl(options.BaseUrl), InvalidBaseUrlMessage)
             .ValidateOnStart();
@@ -24,7 +26,9 @@ public static class TfsGitClientConfiguration
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
             client.Timeout = TimeSpan.FromSeconds(30);
         }).ConfigurePrimaryHttpMessageHandler(provider => CreatePrimaryHandler(
-            provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))
+            provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl,
+            () => provider.GetRequiredService<ITfsWindowsCredentialProvider>().GetCredential(
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))))
             .AddHttpMessageHandler(provider => new TfsGitRequestGuard(
                 GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl)))
             .AddTypedClient<ITfsGitBuildService, TfsGitBuildService>()
@@ -53,12 +57,12 @@ public static class TfsGitClientConfiguration
         return new Uri(baseUrl!.TrimEnd('/') + "/");
     }
 
-    public static HttpClientHandler CreatePrimaryHandler(string? baseUrl)
+    public static HttpClientHandler CreatePrimaryHandler(string? baseUrl, Func<NetworkCredential>? credentials = null)
     {
         var baseAddress = GetBaseAddress(baseUrl);
         return new HttpClientHandler
         {
-            Credentials = new CollectionWindowsCredentials(baseAddress),
+            Credentials = new CollectionWindowsCredentials(baseAddress, credentials),
             AllowAutoRedirect = false,
             UseProxy = false,
             PreAuthenticate = false
@@ -80,13 +84,13 @@ public static class TfsGitClientConfiguration
             uri.AbsolutePath.Contains("%2f", StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class CollectionWindowsCredentials(Uri baseAddress) : ICredentials
+    private sealed class CollectionWindowsCredentials(Uri baseAddress, Func<NetworkCredential>? credentials) : ICredentials
     {
         public NetworkCredential? GetCredential(Uri uri, string authType) =>
             IsWithinCollection(uri, baseAddress) &&
             (string.Equals(authType, "Negotiate", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(authType, "NTLM", StringComparison.OrdinalIgnoreCase))
-                ? CredentialCache.DefaultNetworkCredentials : null;
+                ? credentials is null ? CredentialCache.DefaultNetworkCredentials : credentials.Invoke() : null;
     }
 }
 

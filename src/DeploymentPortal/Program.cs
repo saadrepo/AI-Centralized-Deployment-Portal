@@ -27,7 +27,10 @@ builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlSer
 builder.Services.AddOptions<AutomationOptions>().BindConfiguration("Automation")
     .Validate(x => x.ConnectionTimeoutSeconds is >= 5 and <= 120 && x.DeploymentTimeoutSeconds is >= 60 and <= 3600, "Invalid automation timeouts.").ValidateOnStart();
 builder.Services.AddDataProtection();
-builder.Services.AddScoped<ICredentialProvider, DevelopmentCredentialProvider>();
+if (builder.Environment.IsDevelopment())
+    builder.Services.AddScoped<ICredentialProvider, DevelopmentCredentialProvider>();
+else
+    builder.Services.AddScoped<ICredentialProvider, ProductionCredentialProvider>();
 builder.Services.AddScoped<IPowerShellService, PowerShellService>();
 builder.Services.AddScoped<IWinRmService, WinRmService>();
 builder.Services.AddScoped<IServerService, ServerService>();

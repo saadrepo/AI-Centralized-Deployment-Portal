@@ -2,12 +2,15 @@ namespace DeploymentPortal.ViewModels.Tfs;
 
 public sealed class TfsGitCiBuildsPageViewModel
 {
+    public string ApplicationKey { get; set; } = "Portal";
+    public IReadOnlyList<DeploymentPortal.Services.RegistryApplication> Applications { get; set; } = [];
     public IReadOnlyList<TfsGitCiBuildViewModel> Builds { get; set; } = [];
     public string? Error { get; set; }
 }
 
 public sealed class TfsGitCiArtifactsPageViewModel
 {
+    public string ApplicationKey { get; set; } = "Portal";
     public TfsGitCiBuildViewModel? Build { get; set; }
     public IReadOnlyList<TfsGitCiArtifactViewModel> Artifacts { get; set; } = [];
     public string? Error { get; set; }

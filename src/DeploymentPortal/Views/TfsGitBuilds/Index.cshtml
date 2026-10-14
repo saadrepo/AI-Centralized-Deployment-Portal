@@ -4,9 +4,15 @@
     string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 }
 <div class="page-heading">
-    <div><div class="eyebrow">TFS Git</div><h1>CI Builds <span class="badge bg-secondary fs-6">Read-only</span></h1><p>deployment-portal-poc-CI · Dev · Latest 25 builds</p></div>
-    <a class="btn btn-outline-primary" asp-action="Index">Refresh builds</a>
+    <div><div class="eyebrow">TFS Git</div><h1>CI Builds <span class="badge bg-secondary fs-6">Read-only</span></h1><p>@(Model.ApplicationKey == "Portal" ? "deployment-portal-poc-CI" : Model.ApplicationKey) · Dev · Latest 25 builds</p></div>
+    <a class="btn btn-outline-primary" asp-action="Index" asp-route-applicationKey="@Model.ApplicationKey">Refresh builds</a>
 </div>
+<form method="get" class="mb-3">
+    <label for="ci-application" class="form-label">Application</label>
+    <select id="ci-application" name="applicationKey" class="form-select mb-2">
+    @foreach (var app in Model.Applications) { <option value="@app.Key" selected="@(app.Key == Model.ApplicationKey)">@app.DisplayName (definition @app.TfsGitCiDefinitionId)</option> }
+    </select><button type="submit" class="btn btn-outline-primary">Load builds</button>
+</form>
 @if (Model.Error is string error)
 {
     <div class="alert alert-danger" role="alert">@error</div>
@@ -31,7 +37,7 @@ else
                         <td class="text-break"><code>@Display(build.SourceVersion)</code></td>
                         <td><span class="badge bg-secondary">@Display(build.Status)</span></td>
                         <td>@(string.IsNullOrWhiteSpace(build.Result) ? "Not available yet" : build.Result)</td>
-                        <td><a class="btn btn-outline-primary btn-sm" asp-action="Artifacts" asp-route-id="@build.Id">View artifacts</a></td>
+                        <td><a class="btn btn-outline-primary btn-sm" asp-action="Artifacts" asp-route-id="@build.Id" asp-route-applicationKey="@Model.ApplicationKey">View artifacts</a></td>
                     </tr>
                 }
                 </tbody>

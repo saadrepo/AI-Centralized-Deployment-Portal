@@ -16,57 +16,65 @@ public class TfsGitBuildService(HttpClient client, IConfiguration configuration)
         public List<T>? Value { get; set; }
     }
 
-    public async Task<IReadOnlyList<TfsGitCiBuildViewModel>> GetRecentBuildsAsync()
+    public Task<IReadOnlyList<TfsGitCiBuildViewModel>> GetRecentBuildsAsync() => RecentAsync(null);
+    public Task<IReadOnlyList<TfsGitCiBuildViewModel>> GetRecentBuildsAsync(RegistryApplication app) { TfsApplicationScope.Validate(app); return RecentAsync(app); }
+    private async Task<IReadOnlyList<TfsGitCiBuildViewModel>> RecentAsync(RegistryApplication? app)
     {
-        var path = GetApiPath("build/builds") +
-            $"&definitions={CiDefinitionId}&branchName={Uri.EscapeDataString(CiBranch)}&$top={RecentBuildLimit}&queryOrder=queueTimeDescending";
+        var path = GetApiPath("build/builds", app) +
+            $"&definitions={app?.TfsGitCiDefinitionId ?? CiDefinitionId}&branchName={Uri.EscapeDataString(CiBranch)}&$top={RecentBuildLimit}&queryOrder=queueTimeDescending";
         using var response = await client.GetAsync(path);
         response.EnsureSuccessStatusCode();
         var page = await response.Content.ReadFromJsonAsync<CollectionResponse<TfsGitCiBuildViewModel>>();
         if (page?.Value is null || page.Value.Any(build => build is null)) throw new JsonException("Invalid CI builds response.");
-        return page.Value.Where(IsCiBuild).Take(RecentBuildLimit).ToList();
+        return page.Value.Where(x => IsCiBuild(x, app)).Take(RecentBuildLimit).ToList();
     }
 
-    public async Task<TfsGitCiBuildViewModel?> GetBuildAsync(int buildId)
+    public Task<TfsGitCiBuildViewModel?> GetBuildAsync(int buildId) => BuildAsync(buildId, null);
+    public Task<TfsGitCiBuildViewModel?> GetBuildAsync(int buildId, RegistryApplication app) { TfsApplicationScope.Validate(app); return BuildAsync(buildId, app); }
+    private async Task<TfsGitCiBuildViewModel?> BuildAsync(int buildId, RegistryApplication? app)
     {
         if (buildId <= 0) throw new ArgumentOutOfRangeException(nameof(buildId));
-        using var response = await client.GetAsync(GetApiPath($"build/builds/{buildId}"));
+        using var response = await client.GetAsync(GetApiPath($"build/builds/{buildId}", app));
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         var build = await response.Content.ReadFromJsonAsync<TfsGitCiBuildViewModel>()
             ?? throw new JsonException("Invalid CI build response.");
-        return build.Id == buildId && IsCiBuild(build) ? build : null;
+        return build.Id == buildId && IsCiBuild(build, app) ? build : null;
     }
 
-    public async Task<TfsGitCiBuildViewModel?> GetLatestSuccessfulBuildAsync()
+    public Task<TfsGitCiBuildViewModel?> GetLatestSuccessfulBuildAsync() => LatestAsync(null);
+    public Task<TfsGitCiBuildViewModel?> GetLatestSuccessfulBuildAsync(RegistryApplication app) { TfsApplicationScope.Validate(app); return LatestAsync(app); }
+    private async Task<TfsGitCiBuildViewModel?> LatestAsync(RegistryApplication? app)
     {
         // Filter on TFS, not within the latest 25 builds. Pin the returned ID before any preparation.
-        var path = GetApiPath("build/builds") + $"&definitions={CiDefinitionId}&branchName={Uri.EscapeDataString(CiBranch)}&statusFilter=completed&resultFilter=succeeded&$top=1&queryOrder=finishTimeDescending";
+        var path = GetApiPath("build/builds", app) + $"&definitions={app?.TfsGitCiDefinitionId ?? CiDefinitionId}&branchName={Uri.EscapeDataString(CiBranch)}&statusFilter=completed&resultFilter=succeeded&$top=1&queryOrder=finishTimeDescending";
         using var response = await client.GetAsync(path);
         response.EnsureSuccessStatusCode();
         var page = await response.Content.ReadFromJsonAsync<CollectionResponse<TfsGitCiBuildViewModel>>();
-        if (page?.Value is null || page.Value.Count > 1 || page.Value.Any(x => x is null || !IsCiBuild(x) || x.Status != "completed" || x.Result != "succeeded")) throw new JsonException("Invalid successful CI build response.");
+        if (page?.Value is null || page.Value.Count > 1 || page.Value.Any(x => x is null || !IsCiBuild(x, app) || x.Status != "completed" || x.Result != "succeeded")) throw new JsonException("Invalid successful CI build response.");
         return page.Value.SingleOrDefault();
     }
 
-    public async Task<IReadOnlyList<TfsGitCiArtifactViewModel>> GetArtifactsAsync(int buildId)
+    public Task<IReadOnlyList<TfsGitCiArtifactViewModel>> GetArtifactsAsync(int buildId) => ArtifactsAsync(buildId, null);
+    public Task<IReadOnlyList<TfsGitCiArtifactViewModel>> GetArtifactsAsync(int buildId, RegistryApplication app) { TfsApplicationScope.Validate(app); return ArtifactsAsync(buildId, app); }
+    private async Task<IReadOnlyList<TfsGitCiArtifactViewModel>> ArtifactsAsync(int buildId, RegistryApplication? app)
     {
         // Recheck the build scope even when this method is called outside the controller.
-        if (await GetBuildAsync(buildId) is null) throw new InvalidOperationException("Build is not available in the configured CI scope.");
-        using var response = await client.GetAsync(GetApiPath($"build/builds/{buildId}/artifacts"));
+        if (await BuildAsync(buildId, app) is null) throw new InvalidOperationException("Build is not available in the configured CI scope.");
+        using var response = await client.GetAsync(GetApiPath($"build/builds/{buildId}/artifacts", app));
         response.EnsureSuccessStatusCode();
         var page = await response.Content.ReadFromJsonAsync<CollectionResponse<TfsGitCiArtifactViewModel>>();
         if (page?.Value is null || page.Value.Any(artifact => artifact is null)) throw new JsonException("Invalid CI artifacts response.");
         return page.Value;
     }
 
-    private static bool IsCiBuild(TfsGitCiBuildViewModel build) =>
-        build.Id > 0 && build.Definition?.Id == CiDefinitionId &&
-        string.Equals(build.SourceBranch, CiBranch, StringComparison.Ordinal);
+    private static bool IsCiBuild(TfsGitCiBuildViewModel build, RegistryApplication? app) => app is not null
+        ? TfsApplicationScope.Matches(app, build)
+        : build.Id > 0 && build.Definition?.Id == CiDefinitionId && string.Equals(build.SourceBranch, CiBranch, StringComparison.Ordinal);
 
-    private string GetApiPath(string resource)
+    private string GetApiPath(string resource, RegistryApplication? app)
     {
-        var project = configuration["TfsGit:Project"];
+        var project = app?.TfsGitProject ?? configuration["TfsGit:Project"];
         var apiVersion = configuration["TfsGit:ApiVersion"];
         if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(apiVersion))
             throw new InvalidOperationException("TfsGit project and API version must be configured.");

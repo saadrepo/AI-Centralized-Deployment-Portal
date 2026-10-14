@@ -48,6 +48,26 @@
             "ApplicationPool": null
           }
         ]
+      },
+      {
+        "Key": "Demo",
+        "DisplayName": "Demo",
+        "TfsGitProject": "deployment-portal-poc",
+        "TfsGitRepository": "Demo-App-Repo",
+        "TfsGitCiDefinitionId": 2,
+        "TfsGitCiBranch": "refs/heads/Dev",
+        "TfsGitArtifactName": "drop",
+        "SourceProvider": "PreStaged",
+        "SourceReference": "",
+        "Destinations": [
+          {
+            "ServerHostNameOrIp": "deployment-test.vitonta.com",
+            "SiteName": "CdDemo",
+            "TargetPath": "C:\\Sites\\CdDemo",
+            "ApplicationName": "/",
+            "ApplicationPool": null
+          }
+        ]
       }
     ]
   }

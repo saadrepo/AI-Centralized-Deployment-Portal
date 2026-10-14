@@ -1,6 +1,6 @@
 @model DeploymentPortal.Controllers.CdPreparePage
 @{ ViewData["Title"] = "Prepare artifact deployment"; }
-<div class="page-heading"><div><div class="eyebrow">Controlled TFS Git CD</div><h1>Prepare Deployment</h1><p>Pin a successful build and select a registered IIS destination.</p></div><a class="btn btn-outline-primary" asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@Model.BuildId">Back to artifact</a></div>
+<div class="page-heading"><div><div class="eyebrow">Controlled TFS Git CD</div><h1>Prepare Deployment</h1><p>Pin a successful build and select a registered IIS destination.</p></div><a class="btn btn-outline-primary" asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@Model.BuildId" asp-route-applicationKey="@Model.ApplicationKey">Back to artifact</a></div>
 @if (Model.Error is { } error) { <div class="alert alert-danger" role="alert">@error</div> }
 @if (!Model.Enabled) { <div class="alert alert-info" role="status">CD staging is disabled by default. Remote staging, configuration protection and Review integration remain blocked pending approval and WinRM verification.</div> }
 @if (Model.Targets.Count == 0) { <div class="alert alert-secondary" role="status">No registered IIS destination matches @Model.ApplicationKey. Register the configured hostname in Servers; numeric server IDs are not required.</div> }

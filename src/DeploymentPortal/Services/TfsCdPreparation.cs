@@ -29,7 +29,8 @@ public sealed record CdFile(string Path, long Size, string Sha256);
 public sealed record CdPreparation(Guid Id, DateTimeOffset Expires, string ApplicationKey, string ServerHost,
     string Environment, string SiteName, string ApplicationPath, string TargetPath, int BuildId, string BuildNumber,
     string Branch, string Commit, string RepositoryId, string Artifact, long ContainerId, string ContainerRoot,
-    string PublishRoot, string ManifestSha256, IReadOnlyList<CdFile> Files, string Status);
+    string PublishRoot, string ManifestSha256, IReadOnlyList<CdFile> Files, string Status,
+    int DefinitionId = 1, string ProjectName = "deployment-portal-poc", string RepositoryName = "deployment-portal-poc");
 public sealed record CdSelection(RegistryApplication Application, Server Server, RegistryDestination Destination, TfsArtifactListing Listing);
 
 public interface ITfsCdPreparation
@@ -80,8 +81,7 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
     {
         if (!Enabled) throw new CdPreparationException("TFS Git CD preparation is disabled. No artifact selection or deployment was started.");
         var app = registry.Find(applicationKey) ?? throw new CdPreparationException("Select a registered application.");
-        if (app.TfsGitCiDefinitionId != 1 || app.TfsGitCiBranch != TfsGitBuildService.CiBranch || app.TfsGitArtifactName != "drop")
-            throw new CdPreparationException("Application is not mapped to definition 1, Dev and drop.");
+        if (!TfsApplicationScope.IsConfigured(app)) throw new CdPreparationException("Application needs an explicit project/repository/definition, Dev and drop mapping.");
         var candidates = (await servers.ListAsync()).Where(x => string.Equals(x.HostNameOrIp, serverHost, StringComparison.OrdinalIgnoreCase)).ToList();
         if (candidates.Count != 1) throw new CdPreparationException("Select a unique registered server hostname.");
         var server = candidates[0];
@@ -94,7 +94,9 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
             SourcePath = @"C:\CdValidation\package", TargetPath = destination.TargetPath, SitePort = destination.SitePort, SiteHostName = destination.SiteHostName };
         Validator.ValidateObject(form, new(form), true);
         DeploymentPaths.Validate(form.SourcePath, form.TargetPath, automation.Value);
-        var listing = await explorer.InspectAsync(buildId, cancellationToken);
+        var listing = await explorer.InspectAsync(buildId, app, cancellationToken);
+        if (listing.Build.Id != buildId || !TfsApplicationScope.Matches(app, listing.Build) || listing.Artifact != app.TfsGitArtifactName)
+            throw new CdPreparationException("Build or artifact provenance does not match the selected application.");
         return new(app, server, destination, listing);
     }
 
@@ -118,8 +120,8 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
             var build = listing.Build;
             var identitySnapshot = Identity(listing);
             var targetSnapshot = TargetIdentity(selection);
-            if (build.Id != buildId || build.Definition?.Id != 1 || build.SourceBranch != TfsGitBuildService.CiBranch || build.Status != "completed" || build.Result != "succeeded" || !System.Text.RegularExpressions.Regex.IsMatch(build.SourceVersion ?? "", "^[a-fA-F0-9]{40}$") || build.Repository?.Type != "TfsGit" || !Guid.TryParse(build.Repository.Id, out var repositoryId) || repositoryId == Guid.Empty || build.Repository.Name != "deployment-portal-poc" || build.Project?.Name != "deployment-portal-poc" || build.Project.Id == Guid.Empty)
-                throw new CdPreparationException("Build repository/project provenance is missing or differs from deployment-portal-poc.");
+            if (build.Id != buildId || !TfsApplicationScope.Matches(selection.Application, build) || build.Status != "completed" || build.Result != "succeeded" || !System.Text.RegularExpressions.Regex.IsMatch(build.SourceVersion ?? "", "^[a-fA-F0-9]{40}$") || !Guid.TryParse(build.Repository?.Id, out var repositoryId) || repositoryId == Guid.Empty || build.Project?.Id == Guid.Empty)
+                throw new CdPreparationException("Build repository/project provenance is missing or differs from the selected application.");
             if (listing.ContainerId <= 0 || string.IsNullOrWhiteSpace(listing.ContainerRoot)) throw new InvalidOperationException("Artifact container provenance is missing.");
             var files = listing.Entries.Where(x => !x.IsFolder).ToList();
             if (files.Count == 0 || files.Count > options.Value.MaximumFiles) throw new CdPreparationException("Artifact file count exceeds the preparation policy or is empty.");
@@ -179,7 +181,8 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
                 selection.Server.HostNameOrIp, selection.Server.Environment, selection.Destination.SiteName, selection.Destination.ApplicationName,
                 selection.Destination.TargetPath, build.Id, build.BuildNumber ?? "", build.SourceBranch!, build.SourceVersion!, build.Repository!.Id!,
                 listing.Artifact, listing.ContainerId, listing.ContainerRoot, publishRoot, Digest(manifest), manifest,
-                "PortalStagedBlocked: authenticated remote staging, configuration preservation and protected Review are not yet enabled.");
+                "PortalStagedBlocked: authenticated remote staging, configuration preservation and protected Review are not yet enabled.",
+                selection.Application.TfsGitCiDefinitionId!.Value, selection.Application.TfsGitProject, selection.Application.TfsGitRepository);
             await File.WriteAllTextAsync(Child(packageDirectory, "preparation.dat"), protector.Protect(JsonSerializer.Serialize(prepared)), deadline.Token);
             return prepared;
         }
@@ -245,8 +248,8 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
         return result;
     }
     private static string Digest(IReadOnlyList<CdFile> files) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(files))));
-    private static string Identity(TfsArtifactListing listing) => JsonSerializer.Serialize(new { listing.Build.Id, listing.Build.SourceVersion, listing.Build.SourceBranch, listing.Build.Status, listing.Build.Result, listing.Build.Repository, listing.Build.Project, listing.Artifact, listing.ContainerId, listing.ContainerRoot, listing.Entries });
-    private static string TargetIdentity(CdSelection selection) => JsonSerializer.Serialize(new { selection.Application.Key, selection.Application.TfsGitCiDefinitionId, selection.Application.TfsGitCiBranch, selection.Application.TfsGitArtifactName,
+    private static string Identity(TfsArtifactListing listing) => JsonSerializer.Serialize(new { listing.Build.Id, listing.Build.Definition, listing.Build.SourceVersion, listing.Build.SourceBranch, listing.Build.Status, listing.Build.Result, listing.Build.Repository, listing.Build.Project, listing.Artifact, listing.ContainerId, listing.ContainerRoot, listing.Entries });
+    private static string TargetIdentity(CdSelection selection) => JsonSerializer.Serialize(new { selection.Application.Key, selection.Application.TfsGitCiDefinitionId, selection.Application.TfsGitProject, selection.Application.TfsGitRepository, selection.Application.TfsGitCiBranch, selection.Application.TfsGitArtifactName,
         selection.Destination, selection.Server.Id, selection.Server.HostNameOrIp, selection.Server.Environment, selection.Server.WinRmPort, selection.Server.UseSsl, selection.Server.Username });
     private static void EnsureNoLinks(string path)
     {

@@ -20,17 +20,64 @@ namespace DeploymentPortal.Tests;
 public class TfsCdPreparationTests
 {
     [Fact]
-    public async Task DefaultOffRejectsDirectPostBeforeNetworkOrWrites()
+    public async Task DemoPreparationPinsDefinitionRepositoryAndDestinationWithoutQueueing()
     {
-        using var fixture = new Fixture();
+        using var fixture = new Fixture(useRealExplorer: true, demo: true);
+        var prepared = await fixture.Service.StageAsync("Demo", 3, "dev-host");
+        Assert.Equal("Demo", prepared.ApplicationKey);
+        Assert.Equal(2, prepared.DefinitionId);
+        Assert.Equal("Demo-App-Repo", prepared.RepositoryName);
+        Assert.Equal("deployment-portal-poc", prepared.ProjectName);
+        Assert.Equal("CdDemo", prepared.SiteName);
+        Assert.Equal(@"C:\Sites\CdDemo", prepared.TargetPath);
+        var loaded = await fixture.Service.FindAsync(prepared.Id);
+        Assert.Equal(prepared.DefinitionId, loaded.DefinitionId);
+        Assert.Equal(prepared.RepositoryName, loaded.RepositoryName);
+        Assert.Equal(prepared.ManifestSha256, loaded.ManifestSha256);
+    }
+
+    [Fact]
+    public async Task DemoMissingPhysicalPathCannotInspectOrDownloadPackage()
+    {
+        using var fixture = new Fixture(demo: true);
+        fixture.Registry.App.Destinations[0].TargetPath = "";
+        await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(() => fixture.Service.StageAsync("Demo",3,"dev-host"));
+        Assert.Equal(0,fixture.Explorer.Calls); Assert.Equal(0,fixture.Handler.Calls);
+    }
+
+    [Theory]
+    [InlineData("definition")]
+    [InlineData("repository")]
+    [InlineData("project")]
+    [InlineData("branch")]
+    public async Task DemoRejectsMismatchedBuildBeforeDownloading(string field)
+    {
+        using var fixture = new Fixture(demo: true);
+        var build = fixture.Explorer.Listing.Build;
+        switch (field) {
+            case "definition": build.Definition!.Id = 1; break;
+            case "repository": build.Repository!.Name = "deployment-portal-poc"; break;
+            case "project": build.Project!.Name = "OtherProject"; break;
+            case "branch": build.SourceBranch = "refs/heads/Main"; break;
+        }
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Service.StageAsync("Demo", 3, "dev-host"));
+        Assert.Equal(0, fixture.Handler.Calls);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DefaultOffRejectsDirectPostBeforeNetworkOrWrites(bool demo)
+    {
+        using var fixture = new Fixture(demo: demo);
         fixture.Options.Enabled = false;
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Service.SelectAsync("Portal", 3, "dev-host"));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Service.StageAsync("Portal", 3, "dev-host"));
+        var key = demo ? "Demo" : "Portal";
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Service.SelectAsync(key, 3, "dev-host"));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Service.StageAsync(key, 3, "dev-host"));
         Assert.Equal(0, fixture.Explorer.Calls);
         Assert.Equal(0, fixture.Handler.Calls);
         Assert.False(Directory.Exists(fixture.Root));
         var controller = new TfsCdController(fixture.Service, fixture.Registry, fixture.Servers, NullLogger<TfsCdController>.Instance) { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
-        Assert.IsType<ViewResult>(await controller.Stage(3, "Portal", "dev-host", default));
+        Assert.IsType<ViewResult>(await controller.Stage(3, key, "dev-host", default));
         Assert.Equal(400, controller.Response.StatusCode);
     }
 
@@ -184,8 +231,13 @@ public class TfsCdPreparationTests
         public TfsCdOptions Options { get; }
         public TfsCdPreparation Service { get; }
         private readonly HttpClient client;
-        public Fixture(bool useRealExplorer = false)
+        public Fixture(bool useRealExplorer = false, bool demo = false)
         {
+            if (demo) {
+                Registry.App.Key = "Demo"; Registry.App.DisplayName = "Demo"; Registry.App.TfsGitCiDefinitionId = 2; Registry.App.TfsGitRepository = "Demo-App-Repo";
+                Registry.App.Destinations[0].SiteName = "CdDemo"; Registry.App.Destinations[0].TargetPath = @"C:\Sites\CdDemo";
+                Explorer.Listing.Build.Definition!.Id = 2; Explorer.Listing.Build.Repository!.Name = "Demo-App-Repo";
+            }
             Options = new() { Enabled = true, LocalStagingRoot = Root };
             var address = new Uri("http://netserver:8080/tfs/DefaultCollection/");
             client = new(new TfsGitRequestGuard(address) { InnerHandler = Handler }) { BaseAddress = address };
@@ -218,7 +270,7 @@ public class TfsCdPreparationTests
     private sealed class Registry : ISiteRegistry
     {
         public RegistryApplication App { get; } = new() { Key = "Portal", DisplayName = "Portal", TfsGitCiDefinitionId = 1, Destinations = [new() { ServerHostNameOrIp = "dev-host", SiteName = "ActualSite", ApplicationName = "/", TargetPath = @"C:\Sites\Portal" }] };
-        public RegistryApplication? Find(string key) => key == "Portal" ? App : null;
+        public RegistryApplication? Find(string key) => key == App.Key ? App : null;
         public IReadOnlyList<RegistryApplication> List() => [App];
     }
     private sealed class Servers : IServerService
@@ -232,6 +284,7 @@ public class TfsCdPreparationTests
     }
     private sealed class Explorer : ITfsArtifactExplorer
     {
+        public Task<TfsArtifactListing> InspectAsync(int id, RegistryApplication app, CancellationToken cancellationToken = default) => InspectAsync(id, cancellationToken);
         public int Calls { get; private set; }
         public bool ChangeAfterFirst { get; set; }
         public TfsArtifactListing Listing { get; set; } = new(new() { Id = 3, Definition = new() { Id = 1 }, SourceBranch = "refs/heads/Dev", Status = "completed", Result = "succeeded", SourceVersion = new string('a', 40), Repository = new() { Id = Guid.NewGuid().ToString(), Name = "deployment-portal-poc", Type = "TfsGit" }, Project = new() { Id = Guid.NewGuid(), Name = "deployment-portal-poc" } }, "drop", [new("publish/web.config", false, 2), new("publish/app.dll", false, 2)]) { ContainerId = 12, ContainerRoot = "drop" };

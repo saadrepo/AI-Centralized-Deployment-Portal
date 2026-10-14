@@ -14,6 +14,37 @@ namespace DeploymentPortal.Tests;
 
 public class ControlledCdTests
 {
+    [Fact]
+    public async Task DemoReviewStillRequiresHumanConfirmationAndPreservesAudit()
+    {
+        using var f = new Fixture(demo: true);
+        var draft = await f.Flow.DraftAsync(f.Id);
+        Assert.Equal("CdDemo", draft.SiteName);
+        Assert.Equal(2, draft.CdProvenance!.Provenance.DefinitionId);
+        Assert.Null(draft.ConfirmationToken); Assert.Empty(f.Db.Deployments);
+        draft.ConfirmationToken = await f.Service.ConfirmAsync(draft);
+        Assert.Empty(f.Db.Deployments);
+        await f.Service.QueueAsync(draft);
+        Assert.Single(f.Db.Deployments); Assert.Contains("Confirmed",f.Row.AuditJson);
+        Assert.Equal(0,f.PowerShell.Calls);
+    }
+
+    [Theory]
+    [InlineData("definition")]
+    [InlineData("repository")]
+    [InlineData("project")]
+    public async Task DemoMappingChangesInvalidateReviewBeforeQueue(string field)
+    {
+        using var f = new Fixture(demo: true);
+        var draft = await f.Flow.DraftAsync(f.Id); draft.ConfirmationToken = await f.Service.ConfirmAsync(draft);
+        switch(field) {
+            case "definition": f.Registry.App.TfsGitCiDefinitionId=1; break;
+            case "repository": f.Registry.App.TfsGitRepository="deployment-portal-poc"; break;
+            case "project": f.Registry.App.TfsGitProject="OtherProject"; break;
+        }
+        await Assert.ThrowsAnyAsync<ArgumentException>(()=>f.Service.QueueAsync(draft));
+        Assert.Empty(f.Db.Deployments); Assert.Equal(0,f.PowerShell.Calls);
+    }
     [Fact] public async Task FlagsOffRejectBeforeRemoteOrQueue()
     {
         using var f = new Fixture(); f.Options.ExecutionEnabled = false;
@@ -111,10 +142,10 @@ public class ControlledCdTests
         f.Registry.App.Destinations[0].PreservedConfigurationFiles.Add("secrets.json");
         await Assert.ThrowsAsync<CdPreparationException>(() => f.Service.QueueAsync(form));
     }
-    [Theory] [InlineData("CreateSite")] [InlineData("CreateApplication")]
-    public async Task NewIisObjectsAreBlocked(string mode)
+    [Theory] [InlineData("CreateSite",false)] [InlineData("CreateApplication",false)] [InlineData("CreateSite",true)] [InlineData("CreateApplication",true)]
+    public async Task NewIisObjectsAreBlocked(string mode, bool demo)
     {
-        using var f = new Fixture(); f.PowerShell.Mode = mode;
+        using var f = new Fixture(demo); f.PowerShell.Mode = mode;
         var form = await f.Flow.DraftAsync(f.Id);
         await Assert.ThrowsAnyAsync<ArgumentException>(() => f.Service.ConfirmAsync(form)); Assert.Empty(f.Db.Deployments);
     }
@@ -160,12 +191,13 @@ public class ControlledCdTests
         public Registry Registry = new(); public FakePowerShell PowerShell = new(); public FakeWinRm WinRm = new();
         public CdDeploymentSource Row; public CdRemoteSnapshot Snapshot; public CdDeploymentFlow Flow; public DeploymentService Service;
         private readonly EphemeralDataProtectionProvider protection = new();
-        public Fixture()
+        public Fixture(bool demo = false)
         {
+            if (demo) { Registry.App.Key="Demo"; Registry.App.TfsGitCiDefinitionId=2; Registry.App.TfsGitRepository="Demo-App-Repo"; Registry.App.Destinations[0].SiteName="CdDemo"; Registry.App.Destinations[0].TargetPath=@"C:\Sites\CdDemo"; }
             Db = new(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
             Server = new() { Id = 42, DisplayName = "Deployment_1", HostNameOrIp = "dev-host", Environment = "Development", Username = "user" };
             Db.Servers.Add(Server); Servers = new(Db, WinRm);
-            var preparation = new CdPreparation(Id, DateTimeOffset.UtcNow.AddHours(1), "Portal", "dev-host", "Development", "Portal", "/", @"C:\Sites\Portal", 3, "build3", "refs/heads/Dev", new string('a',40), Guid.NewGuid().ToString(), "drop", 12, "drop", "publish", new string('b',64), [], "Prepared");
+            var preparation = new CdPreparation(Id, DateTimeOffset.UtcNow.AddHours(1), Registry.App.Key, "dev-host", "Development", Registry.App.Destinations[0].SiteName, "/", Registry.App.Destinations[0].TargetPath, 3, "build3", "refs/heads/Dev", new string('a',40), Guid.NewGuid().ToString(), "drop", 12, "drop", "publish", new string('b',64), [], "Prepared", Registry.App.TfsGitCiDefinitionId!.Value, Registry.App.TfsGitProject, Registry.App.TfsGitRepository);
             Snapshot = new(Id, preparation, Server.Id, CdDeploymentFlow.Fingerprint(Server), Options.RemoteStagingRoot, Options.RemoteStagingRoot + "\\" + Id.ToString("N") + "\\publish", null, 8080, null, "[]", "[]", new string('c',64), CdDeploymentFlow.Policy, []);
             Row = new() { PreparationId = Id, BuildId = 3, BuildNumber = "build3", Branch = preparation.Branch, Commit = preparation.Commit, Artifact = "drop" };
             Seal(Snapshot); Db.CdDeploymentSources.Add(Row); Db.SaveChanges();

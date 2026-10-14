@@ -8,6 +8,7 @@ namespace DeploymentPortal.Services;
 public interface ITfsArtifactExplorer
 {
     Task<TfsArtifactListing> InspectAsync(int buildId, CancellationToken cancellationToken = default);
+    Task<TfsArtifactListing> InspectAsync(int buildId, RegistryApplication app, CancellationToken cancellationToken = default) { TfsApplicationScope.RequireLegacyScope(app); return InspectAsync(buildId, cancellationToken); }
 }
 
 public sealed record TfsArtifactEntry(string Path, bool IsFolder, long? Size);
@@ -27,14 +28,17 @@ public sealed class TfsArtifactExplorer(HttpClient client, ITfsGitBuildService b
     private sealed class Item { public string? Path { get; set; } public JsonElement ItemType { get; set; } public JsonElement Status { get; set; } public long? FileLength { get; set; } }
     private sealed class Page<T> { public List<T>? Value { get; set; } }
 
-    public async Task<TfsArtifactListing> InspectAsync(int buildId, CancellationToken cancellationToken = default)
+    public Task<TfsArtifactListing> InspectAsync(int buildId, CancellationToken cancellationToken = default) => InspectCoreAsync(buildId, null, cancellationToken);
+    public Task<TfsArtifactListing> InspectAsync(int buildId, RegistryApplication app, CancellationToken cancellationToken = default) { TfsApplicationScope.Validate(app); return InspectCoreAsync(buildId, app, cancellationToken); }
+    private async Task<TfsArtifactListing> InspectCoreAsync(int buildId, RegistryApplication? app, CancellationToken cancellationToken)
     {
-        var build = await builds.GetBuildAsync(buildId) ?? throw new ArgumentException("Select a build from the configured Dev CI pipeline.");
+        var build = (app is null ? await builds.GetBuildAsync(buildId) : await builds.GetBuildAsync(buildId, app)) ?? throw new ArgumentException("Select a build from the configured application's Dev CI pipeline.");
+        if (app is not null && !TfsApplicationScope.Matches(app, build)) throw new ArgumentException("Build does not match the selected application.");
         if (build.Status != "completed" || build.Result != "succeeded")
             throw new ArgumentException("Artifact inspection requires a completed, successful Dev build.");
         if (!Regex.IsMatch(build.SourceVersion ?? "", "^[a-fA-F0-9]{40}$", RegexOptions.CultureInvariant))
             throw new InvalidOperationException("The build has no valid Git commit identity.");
-        var project = configuration["TfsGit:Project"];
+        var project = app?.TfsGitProject ?? configuration["TfsGit:Project"];
         var version = configuration["TfsGit:ApiVersion"];
         if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(version)) throw new InvalidOperationException("TFS Git configuration is incomplete.");
         var artifacts = await ReadAsync<Artifact>($"{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/artifacts?api-version={Uri.EscapeDataString(version)}", cancellationToken);

@@ -14,11 +14,10 @@ public sealed class AssistantQueries(ISiteRegistry registry, IServerService serv
         var app = matches[0];
         if (command.Intent == AssistantIntent.ShowLatestBuild)
         {
-            if (app.TfsGitCiDefinitionId != TfsGitBuildService.CiDefinitionId || app.TfsGitCiBranch != TfsGitBuildService.CiBranch || app.TfsGitArtifactName != "drop")
-                throw new ArgumentException("This application has no explicit association with the Dev Git CI pipeline. Ask the administrator to configure TfsGitCiDefinitionId=1 for the intended registry application.");
-            var build = await builds.GetLatestSuccessfulBuildAsync();
+            TfsApplicationScope.Validate(app);
+            var build = await builds.GetLatestSuccessfulBuildAsync(app);
             if (build is null) return new("No completed, successful Dev CI build was found.");
-            var artifacts = await builds.GetArtifactsAsync(build.Id);
+            var artifacts = await builds.GetArtifactsAsync(build.Id, app);
             var drops = artifacts.Where(x => x.Name == "drop").ToList();
             return new($"{app.DisplayName}: latest successful Dev build {build.Id} ({build.BuildNumber ?? "unnamed"}). Commit: {build.SourceVersion ?? "unavailable"}. Status: {build.Status ?? "unknown"}; result: {build.Result ?? "pending"}. Artifact: {(drops.Count == 1 ? "drop (" + (drops[0].Resource?.Type ?? "unknown type") + ")" : drops.Count == 0 ? "drop unavailable" : "ambiguous drop artifacts")}. This is a read-only query; no deployment was prepared.", build.Id);
         }

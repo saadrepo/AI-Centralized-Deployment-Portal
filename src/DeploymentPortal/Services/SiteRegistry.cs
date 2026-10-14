@@ -17,6 +17,8 @@ public sealed class RegistryApplication
     public string SourceReference { get; set; } = "";
     // Explicit CI association; null means no association, never infer from an app name.
     public int? TfsGitCiDefinitionId { get; set; }
+    public string TfsGitProject { get; set; } = "deployment-portal-poc";
+    public string TfsGitRepository { get; set; } = "deployment-portal-poc";
     public string TfsGitCiBranch { get; set; } = "refs/heads/Dev";
     public string TfsGitArtifactName { get; set; } = "drop";
     public List<RegistryDestination> Destinations { get; set; } = [];

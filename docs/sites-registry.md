@@ -1,5 +1,10 @@
 # Sites Registry v1
 
+See [Demo application support](demo-application.md) for the separate definition-2
+CI mapping, application selection and controlled CD safety checks. Portal's existing
+definition-1 mapping remains unchanged. Demo uses the verified existing CdDemo
+physical path `C:\Sites\CdDemo`; CD flags remain disabled.
+
 Edit `src/DeploymentPortal/sites-registry.json`. Portal, API, and Finance ship unconfigured so Deploy is disabled until real mappings are supplied. The file is included in normal Web SDK build/publish output. Existing application configuration can override the `SitesRegistry` section (including environment variables such as `SitesRegistry__Applications__0__Destinations__0__ServerId`).
 
 Example application entry (replace ID and paths with actual values):

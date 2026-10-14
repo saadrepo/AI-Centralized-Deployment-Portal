@@ -10,7 +10,7 @@ public sealed class AssistantArtifactResolver(ISiteRegistry registry, IServerSer
         var apps = registry.List().Where(x => string.Equals(x.Key, command.Application, StringComparison.OrdinalIgnoreCase) || string.Equals(x.DisplayName, command.Application, StringComparison.OrdinalIgnoreCase)).ToList();
         if (apps.Count != 1) throw new ArgumentException("Specify one unique registered application key.");
         var app = apps[0];
-        if (app.TfsGitCiDefinitionId != 1 || app.TfsGitCiBranch != TfsGitBuildService.CiBranch || app.TfsGitArtifactName != "drop") throw new ArgumentException("Application needs an explicit Dev CI definition 1/drop mapping.");
+        TfsApplicationScope.Validate(app);
         var inventory = await servers.ListAsync();
         var matches = inventory.Where(s => Equal(s.DisplayName, command.Server) || Equal(s.HostNameOrIp, command.Server)).ToList();
         if (matches.Count == 0)
@@ -20,7 +20,7 @@ public sealed class AssistantArtifactResolver(ISiteRegistry registry, IServerSer
             matches = inventory.Where(s => Equal(s.Environment, environment) && app.Destinations.Any(d => d.Matches(s))).ToList();
         }
         if (matches.Count != 1) throw new ArgumentException("Specify a unique registered server hostname or display name for this application.");
-        var buildId = command.BuildId ?? (await builds.GetLatestSuccessfulBuildAsync())?.Id ?? throw new ArgumentException("No completed, successful Dev build was found.");
+        var buildId = command.BuildId ?? (await builds.GetLatestSuccessfulBuildAsync(app))?.Id ?? throw new ArgumentException("No completed, successful Dev build was found.");
         return await preparation.SelectAsync(app.Key, buildId, matches[0].HostNameOrIp);
     }
     private static bool Equal(string left, string right) => string.Equals(left, right.Trim(), StringComparison.OrdinalIgnoreCase);

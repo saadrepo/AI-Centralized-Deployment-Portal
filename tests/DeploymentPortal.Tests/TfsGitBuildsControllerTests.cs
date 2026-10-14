@@ -18,6 +18,20 @@ namespace DeploymentPortal.Tests;
 public class TfsGitBuildsControllerTests
 {
     [Fact]
+    public async Task ApplicationSelectorAndArtifactLinksRetainDemoScope()
+    {
+        var builds = await Render("Index", new TfsGitCiBuildsPageViewModel { ApplicationKey = "Demo", Applications = [new() { Key="Portal", DisplayName="Portal", TfsGitCiDefinitionId=1 }, new() { Key="Demo", DisplayName="Demo", TfsGitCiDefinitionId=2 }], Builds=[StubService.Build] });
+        Assert.Contains("name=\"applicationKey\"", builds);
+        Assert.Contains("value=\"Demo\" selected=\"selected\"", builds);
+        Assert.Contains("definition 2", builds);
+        Assert.Contains("applicationKey=Demo", builds);
+        AssertReadOnly(builds);
+        var artifacts = await Render("Artifacts", new TfsGitCiArtifactsPageViewModel { ApplicationKey="Demo", Build=StubService.Build, Artifacts=[new() { Name="drop",Resource=new() { Type="Container" } }] });
+        Assert.Contains("/TfsArtifacts", artifacts); Assert.Contains("/TfsCd/Prepare", artifacts);
+        Assert.True(System.Text.RegularExpressions.Regex.Matches(artifacts, "applicationKey=Demo").Count >= 4);
+        AssertReadOnly(artifacts);
+    }
+    [Fact]
     public async Task RecentBuildsRenderRequiredFieldsAndArtifactSelectionOnly()
     {
         var service = new StubService();
@@ -187,7 +201,7 @@ public class TfsGitBuildsControllerTests
 
     private static void AssertReadOnly(string html)
     {
-        Assert.DoesNotContain("<form", html);
+        Assert.DoesNotContain("method=\"post\"", html, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("download", html, StringComparison.OrdinalIgnoreCase);
         // Preparation navigation is allowed; this metadata page still has no submit/approval boundary.
         Assert.DoesNotContain("/Deployments/Create", html);

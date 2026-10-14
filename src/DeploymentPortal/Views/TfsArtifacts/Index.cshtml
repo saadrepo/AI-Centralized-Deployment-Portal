@@ -1,22 +1,28 @@
 @model DeploymentPortal.Controllers.ArtifactExplorerPage
 @{ ViewData["Title"] = "Artifact Explorer"; }
-<div class="page-heading"><div><div class="eyebrow">TFS Git · Read-only</div><h1>Artifact Explorer</h1><p>Validated drop metadata. No files are downloaded or edited.</p></div><a class="btn btn-outline-primary" asp-controller="TfsGitBuilds" asp-action="Index">CI builds</a></div>
+<div class="page-heading"><div><div class="eyebrow">TFS Git · Read-only</div><h1>Artifact Explorer</h1><p>Validated drop metadata. No files are downloaded or edited.</p></div><a class="btn btn-outline-primary" asp-controller="TfsGitBuilds" asp-action="Index" asp-route-applicationKey="@Model.ApplicationKey">CI builds</a></div>
 @if (Model.Error is { } error) { <div class="alert alert-danger" role="alert">@error</div> }
+<form asp-controller="TfsGitBuilds" asp-action="Index" method="get" class="mb-3">
+    <label for="artifact-application" class="form-label">Application</label>
+    <select id="artifact-application" name="applicationKey" class="form-select mb-2">
+    @foreach (var app in Model.Applications) { <option value="@app.Key" selected="@(app.Key == Model.ApplicationKey)">@app.DisplayName (definition @app.TfsGitCiDefinitionId)</option> }
+    </select><button class="btn btn-outline-primary" type="submit">Choose a build</button>
+</form>
 @if (Model.Listing is { } listing)
 {
-    <section class="panel mb-3"><div class="panel-heading"><h2>Build @listing.Build.Id · @listing.Build.BuildNumber</h2><a class="btn btn-outline-primary btn-sm" asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@listing.Build.Id">Artifact metadata</a></div>
+    <section class="panel mb-3"><div class="panel-heading"><h2>Build @listing.Build.Id · @listing.Build.BuildNumber</h2><a class="btn btn-outline-primary btn-sm" asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@listing.Build.Id" asp-route-applicationKey="@Model.ApplicationKey">Artifact metadata</a></div>
         <dl class="detail-grid"><dt>Branch</dt><dd>@listing.Build.BranchName</dd><dt>Commit</dt><dd><code>@listing.Build.SourceVersion</code></dd><dt>Artifact</dt><dd>@listing.Artifact</dd><dt>Folder</dt><dd>@(Model.Folder == "" ? "/" : Model.Folder)</dd></dl>
     </section>
     <div class="alert alert-info" role="status">WinRM authentication on the new VM is unresolved. Preparation cannot queue or confirm a deployment.</div>
-    <a class="btn btn-outline-primary mb-3" asp-controller="TfsCd" asp-action="Prepare" asp-route-id="@listing.Build.Id">Prepare Deployment</a>
-    @if (Model.Folder != "") { <a class="btn btn-outline-secondary mb-3" asp-route-id="@listing.Build.Id" asp-route-folder="@(Model.Folder.Contains('/') ? Model.Folder[..Model.Folder.LastIndexOf('/')] : "")">Parent folder</a> }
+    <a class="btn btn-outline-primary mb-3" asp-controller="TfsCd" asp-action="Prepare" asp-route-id="@listing.Build.Id" asp-route-applicationKey="@Model.ApplicationKey">Prepare Deployment</a>
+    @if (Model.Folder != "") { <a class="btn btn-outline-secondary mb-3" asp-route-id="@listing.Build.Id" asp-route-applicationKey="@Model.ApplicationKey" asp-route-folder="@(Model.Folder.Contains('/') ? Model.Folder[..Model.Folder.LastIndexOf('/')] : "")">Parent folder</a> }
     @if (Model.Entries.Count == 0) { <div class="alert alert-secondary" role="status">This artifact folder is empty.</div> }
     else
     {
         <section class="panel"><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Path</th><th>Type</th><th>Size (bytes)</th></tr></thead><tbody>
         @foreach (var entry in Model.Entries)
         {
-            <tr><td>@if (entry.IsFolder) { <a asp-route-id="@listing.Build.Id" asp-route-folder="@entry.Path">@entry.Path</a> } else { <code>@entry.Path</code> }</td><td>@(entry.IsFolder ? "Folder" : "File")</td><td>@(entry.Size?.ToString("N0") ?? "—")</td></tr>
+            <tr><td>@if (entry.IsFolder) { <a asp-route-id="@listing.Build.Id" asp-route-applicationKey="@Model.ApplicationKey" asp-route-folder="@entry.Path">@entry.Path</a> } else { <code>@entry.Path</code> }</td><td>@(entry.IsFolder ? "Folder" : "File")</td><td>@(entry.Size?.ToString("N0") ?? "—")</td></tr>
         }
         </tbody></table></div></section>
     }

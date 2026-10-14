@@ -4,11 +4,11 @@
     string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 }
 <div class="page-heading">
-    <div><div class="eyebrow">TFS Git</div><h1>Build artifacts <span class="badge bg-secondary fs-6">Read-only</span></h1><p>deployment-portal-poc-CI · Dev</p></div>
+    <div><div class="eyebrow">TFS Git</div><h1>Build artifacts <span class="badge bg-secondary fs-6">Read-only</span></h1><p>@(Model.ApplicationKey == "Portal" ? "deployment-portal-poc-CI" : Model.ApplicationKey) · Dev</p></div>
     <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-outline-primary" asp-action="Index">Back to CI builds</a>
+        <a class="btn btn-outline-primary" asp-action="Index" asp-route-applicationKey="@Model.ApplicationKey">Back to CI builds</a>
         @if (Model.Build is { } selected)
-        { <a class="btn btn-outline-secondary" asp-action="Artifacts" asp-route-id="@selected.Id">Refresh artifacts</a> }
+        { <a class="btn btn-outline-secondary" asp-action="Artifacts" asp-route-id="@selected.Id" asp-route-applicationKey="@Model.ApplicationKey">Refresh artifacts</a> }
     </div>
 </div>
 @if (Model.Error is string error)
@@ -49,8 +49,8 @@
                             @if (string.Equals(artifact.Name, "drop", StringComparison.Ordinal))
                             { <span class="badge bg-primary">CI artifact</span>
                                 @if (build.Status == "completed" && build.Result == "succeeded")
-                                { <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsArtifacts" asp-action="Index" asp-route-id="@build.Id">Explore files</a>
-                                  <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsCd" asp-action="Prepare" asp-route-id="@build.Id">Prepare Deployment</a> }
+                                { <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsArtifacts" asp-action="Index" asp-route-id="@build.Id" asp-route-applicationKey="@Model.ApplicationKey">Explore files</a>
+                                  <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsCd" asp-action="Prepare" asp-route-id="@build.Id" asp-route-applicationKey="@Model.ApplicationKey">Prepare Deployment</a> }
                             }
                         </td><td>@Display(artifact.Resource?.Type)</td></tr>
                     }

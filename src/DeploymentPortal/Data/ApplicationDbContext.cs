@@ -6,6 +6,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<Server> Servers => Set<Server>();
     public DbSet<Deployment> Deployments => Set<Deployment>();
+    public DbSet<CdDeploymentSource> CdDeploymentSources => Set<CdDeploymentSource>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Server>().Property(x => x.LastConnectionStatus).HasConversion<string>().HasMaxLength(20);
@@ -14,5 +15,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<Deployment>().HasOne(x => x.Server).WithMany().HasForeignKey(x => x.ServerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Deployment>().HasIndex(x => x.StartedAt);
         modelBuilder.Entity<Server>().HasIndex(x => new { x.HostNameOrIp, x.WinRmPort }).IsUnique();
+        modelBuilder.Entity<CdDeploymentSource>().HasKey(x => x.PreparationId);
+        modelBuilder.Entity<CdDeploymentSource>().HasOne(x => x.Deployment).WithOne(x => x.CdSource).HasForeignKey<CdDeploymentSource>(x => x.DeploymentId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<CdDeploymentSource>().HasIndex(x => x.DeploymentId).IsUnique().HasFilter("[DeploymentId] IS NOT NULL");
     }
 }

@@ -4,6 +4,9 @@
       {
         "Key": "Portal",
         "DisplayName": "Portal",
+        "TfsGitCiDefinitionId": 1,
+        "TfsGitCiBranch": "refs/heads/Dev",
+        "TfsGitArtifactName": "drop",
         "SourceProvider": "PreStaged",
         "SourceReference": "C:\\DeploymentPackages\\MyApp\\release-001\\MyMvcLandingPage",
         "Destinations": [

@@ -3,8 +3,8 @@ using DeploymentPortal.ViewModels;
 
 namespace DeploymentPortal.Services;
 
-public enum AssistantIntent { DeploySite }
-public sealed record AssistantCommand(AssistantIntent Intent, string Application, string Server);
+public enum AssistantIntent { DeploySite, ShowLatestBuild, CheckDeploymentStatus, PrepareArtifact }
+public sealed record AssistantCommand(AssistantIntent Intent, string Application, string Server, int? BuildId = null);
 public interface IAssistantCommandParser
 {
     AssistantCommand Parse(string? text);
@@ -15,6 +15,21 @@ public sealed class AssistantCommandParser : IAssistantCommandParser
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > 1000)
             throw new ArgumentException("Enter a command of up to 1000 characters: Deploy Portal on DEV server.");
+        var latest = Regex.Match(text.Trim(), @"^show\s+latest\s+(.+?)\s+(?:successful\s+)?Dev\s+build$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        if (latest.Success) return new(AssistantIntent.ShowLatestBuild, latest.Groups[1].Value.Trim(), "");
+        var status = Regex.Match(text.Trim(), @"^check\s+(.+?)\s+deployment\s+status(?:\s+on\s+(.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        if (status.Success) return new(AssistantIntent.CheckDeploymentStatus, status.Groups[1].Value.Trim(), status.Groups[2].Value.Trim());
+        var artifact = Regex.Match(text.Trim(), @"^deploy\s+(.+?)\s+(?:latest\s+(?:successful\s+)?Dev\s+build|build\s+([0-9]+))\s+on\s+(.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        if (artifact.Success)
+        {
+            int? buildId = null;
+            if (artifact.Groups[2].Success)
+            {
+                if (!int.TryParse(artifact.Groups[2].Value, out var id) || id <= 0) throw new ArgumentException("Specify a positive build ID.");
+                buildId = id;
+            }
+            return new(AssistantIntent.PrepareArtifact, artifact.Groups[1].Value.Trim(), artifact.Groups[3].Value.Trim(), buildId);
+        }
         var match = Regex.Match(text.Trim(), @"^deploy\s+(.+?)\s+on\s+(.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
         if (!match.Success)
             throw new ArgumentException("Specify an application and server: Deploy Portal on DEV server. Only deployment preparation is supported.");

@@ -1,0 +1,41 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsGitCiBuildsPageViewModel
+@{
+    ViewData["Title"] = "TFS Git CI Builds";
+    string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+}
+<div class="page-heading">
+    <div><div class="eyebrow">TFS Git</div><h1>CI Builds <span class="badge bg-secondary fs-6">Read-only</span></h1><p>deployment-portal-poc-CI · Dev · Latest 25 builds</p></div>
+    <a class="btn btn-outline-primary" asp-action="Index">Refresh builds</a>
+</div>
+@if (Model.Error is string error)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+else if (Model.Builds.Count == 0)
+{
+    <div class="alert alert-secondary" role="status">No CI builds found for Dev.</div>
+}
+else
+{
+    <section class="panel">
+        <div class="panel-heading"><h2>Recent builds</h2><span class="badge bg-secondary">@Model.Builds.Count shown</span></div>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th scope="col">Build number</th><th scope="col">Branch</th><th scope="col">Commit</th><th scope="col">Status</th><th scope="col">Result</th><th scope="col">Artifacts</th></tr></thead>
+                <tbody>
+                @foreach (var build in Model.Builds)
+                {
+                    <tr>
+                        <td><strong>@Display(build.BuildNumber)</strong></td>
+                        <td>@Display(build.BranchName)</td>
+                        <td class="text-break"><code>@Display(build.SourceVersion)</code></td>
+                        <td><span class="badge bg-secondary">@Display(build.Status)</span></td>
+                        <td>@(string.IsNullOrWhiteSpace(build.Result) ? "Not available yet" : build.Result)</td>
+                        <td><a class="btn btn-outline-primary btn-sm" asp-action="Artifacts" asp-route-id="@build.Id">View artifacts</a></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}

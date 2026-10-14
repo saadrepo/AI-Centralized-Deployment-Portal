@@ -11,7 +11,9 @@ param(
     [bool]$PreviewOnly = $false,
     [AllowEmptyString()][string]$ExpectedState = "",
     [int]$SitePort = 8080,
-    [AllowEmptyString()][string]$SiteHostName = ""
+    [AllowEmptyString()][string]$SiteHostName = "",
+    $CdPackage = $null,
+    [AllowEmptyString()][string]$CdSecurityFunctions = ""
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -25,6 +27,9 @@ $mutex = $null
 $ownsMutex = $false
 $success = $false
 $message = ''
+$cdVerified = $false
+$verification = ''
+if ($CdPackage) { . ([scriptblock]::Create($CdSecurityFunctions)) }
 
 function Normalize-LocalPath([string]$Value) {
     if ($Value -notmatch '^[A-Za-z]:\\' -or $Value -match '[*?"<>|/]' -or $Value.Substring(2).Contains(':')) { Stop-Deployment 'Invalid local path.' }
@@ -189,6 +194,11 @@ try {
     try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
     if (!$ownsMutex) { Stop-Deployment 'Another deployment is active on this server.' }
     $plan = Read-IISPlan
+    if ($CdPackage) {
+        if ($plan.Mode -ne 'Update' -or !$plan.PoolExists -or !$plan.TargetExists) { Stop-Deployment 'CD requires an existing application, pool and target directory; creation is not supported.' }
+        try { Assert-CdApprovedPackage $CdPackage $SourcePath $TargetPath }
+        catch { Stop-Deployment 'CD package or preserved configuration changed. Prepare and Review again.' }
+    }
     if ($PreviewOnly) {
         $success = $true; $message = $plan.Message
     } else {
@@ -208,6 +218,10 @@ try {
             $backupReady = $true
         } else { New-Item -ItemType Directory -Path $TargetPath | Out-Null }
         $stage = 'file deployment'
+        if ($CdPackage) {
+            try { Assert-CdApprovedPackage $CdPackage $SourcePath $TargetPath }
+            catch { Stop-Deployment 'CD integrity changed before copying. Prepare and Review again.' }
+        }
         Assert-NoLinks $SourcePath
         $modified = $true
         Clear-Target
@@ -238,6 +252,13 @@ try {
         Wait-Pool 'Started'
         if ((Get-Website | Where-Object Name -EQ $SiteName).State -ne 'Started') { Start-Website -Name $SiteName }
         if ((Get-Website | Where-Object Name -EQ $SiteName).State -ne 'Started' -or !(Test-Path -LiteralPath (Join-Path $TargetPath 'web.config'))) { Stop-Deployment 'Final verification failed.' }
+        if ($CdPackage) {
+            if ((Get-CdManifestJson $TargetPath) -cne $CdPackage.EffectiveManifestJson -or (Get-CdConfigurationJson $TargetPath $CdPackage.PreservedConfigurationFiles) -cne $CdPackage.ConfigurationManifestJson) { Stop-Deployment 'CD deployed files or preserved configuration failed verification.' }
+            $verifiedPlan = Read-IISPlan
+            if ($verifiedPlan.Mode -ne 'Update' -or $verifiedPlan.Pool -ne $AppPoolName) { Stop-Deployment 'CD IIS application verification failed.' }
+            $cdVerified = $true
+            $verification = 'Selected IIS application, physical path, dedicated pool, started site/pool and deployed file/configuration hashes verified. HTTP health was not checked.'
+        }
         $poolStopped = $false
         $success = $true
         $message = "Deployment successful ($($plan.Mode)). Files deployed and IIS started."
@@ -280,7 +301,7 @@ try {
     if ($null -ne $mutex) { $mutex.Dispose() }
 }
 $result = [pscustomobject]@{ Success = $success; Message = $message; ServerName = $env:COMPUTERNAME; OperatingSystem = ''; BackupPath = $(if ($backupReady) { $BackupPath } else { '' });
-    StateFingerprint = $(if ($plan) { $plan.Fingerprint } else { '' }); DeploymentMode = $(if ($plan) { $plan.Mode } else { '' }) }
+    StateFingerprint = $(if ($plan) { $plan.Fingerprint } else { '' }); DeploymentMode = $(if ($plan) { $plan.Mode } else { '' }); Verified = ($success -and $cdVerified); Verification = $verification }
 if ($RemoteInvocation) { return $result }
 $result | ConvertTo-Json -Compress
 if (!$success) { exit 1 }

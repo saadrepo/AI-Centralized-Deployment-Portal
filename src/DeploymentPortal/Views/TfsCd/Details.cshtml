@@ -1,0 +1,16 @@
+@model DeploymentPortal.Services.CdPreparation
+@{ ViewData["Title"] = "Artifact preparation"; }
+<div class="page-heading"><div><h1>Artifact preparation</h1><p>@Model.ApplicationKey · @Model.Id</p></div><a class="btn btn-outline-primary" asp-controller="Deployments" asp-action="Index">Deployment history</a></div>
+<div class="alert alert-warning" role="status">Preparation does not approve a deployment. Review and human confirmation are required.</div>
+<section class="panel"><div class="panel-heading"><h2>Immutable preparation provenance</h2></div><dl class="detail-grid"><dt>Build</dt><dd><a asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@Model.BuildId">@Model.BuildId / @Model.BuildNumber</a></dd><dt>Branch</dt><dd>@Model.Branch</dd><dt>Commit</dt><dd><code>@Model.Commit</code></dd><dt>Artifact</dt><dd>@Model.Artifact</dd><dt>Server / site</dt><dd>@Model.ServerHost / @Model.SiteName</dd><dt>Target</dt><dd><code>@Model.TargetPath</code></dd><dt>Package manifest SHA-256</dt><dd><code>@Model.ManifestSha256</code></dd><dt>Inspection</dt><dd>@Model.Files.Count files; @Model.Files.Sum(x => x.Size).ToString("N0") bytes; publish root @(Model.PublishRoot == "" ? "/" : Model.PublishRoot)</dd><dt>Expires</dt><dd>@Model.Expires.ToString("u")</dd><dt>Configuration policy</dt><dd>@(ViewBag.CdDraft is null ? "Remote preservation is required before Review." : "Existing configuration preserved in private staging and bound to approval.") No configuration values are displayed.</dd><dt>Remote verification</dt><dd>@(ViewBag.CdDraft is null ? "Not performed. Authenticated WinRM is required." : "Remote package prepared; IIS preflight runs during Review. Post-deployment verification has not run.")</dd></dl></section>
+@if (ViewBag.CdDraft is DeploymentPortal.ViewModels.DeploymentForm draft)
+{
+    <section class="panel mt-3"><div class="form-body"><h2>Remote package ready for Review</h2><p>Existing application update only. Target configuration is preserved and bound to approval. Review performs authenticated IIS preflight; only a later human Confirm can queue deployment.</p>
+    <form asp-controller="Deployments" asp-action="Review" method="post" data-busy>
+    @foreach (var entry in new Dictionary<string, string?> { ["PreparationId"] = draft.PreparationId.ToString(), ["ServerId"] = draft.ServerId.ToString(), ["Environment"] = draft.Environment, ["SiteName"] = draft.SiteName, ["ApplicationName"] = draft.ApplicationName, ["AppPoolName"] = draft.AppPoolName, ["SourcePath"] = draft.SourcePath, ["TargetPath"] = draft.TargetPath, ["SitePort"] = draft.SitePort.ToString(), ["SiteHostName"] = draft.SiteHostName }) { <input type="hidden" name="@entry.Key" value="@entry.Value" /> }
+    <button class="btn btn-primary" type="submit">Review deployment</button></form></div></section>
+}
+else
+{
+    <section class="panel mt-3"><div class="form-body"><h2>Remote preparation</h2><p>Requires enabled CD flags, applied additive migration, private staging roots and working authenticated WinRM. This transfers and validates files privately; it does not deploy.</p><form asp-action="StageRemote" method="post" data-busy><input type="hidden" name="id" value="@Model.Id" /><button class="btn btn-outline-primary" type="submit" disabled="@(!(ViewBag.RemoteEnabled is true))">Prepare remote package</button></form></div></section>
+}

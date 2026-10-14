@@ -5,7 +5,7 @@ $exitCode = 1
 $stage = 'request validation'
 try {
     $request = [Console]::In.ReadLine() | ConvertFrom-Json
-    if ($request.Operation -notin @('TestConnection', 'GetBasicServerInfo', 'PreviewDeployment', 'Deploy', 'PreviewDeleteSite', 'DeleteSite', 'ListSites')) { throw 'Unsupported operation.' }
+    if ($request.Operation -notin @('TestConnection', 'GetBasicServerInfo', 'PreviewDeployment', 'Deploy', 'StageCd', 'PreviewDeleteSite', 'DeleteSite', 'ListSites')) { throw 'Unsupported operation.' }
     $stage = 'credential preparation'
     $secure = ConvertTo-SecureString -String $request.Password -AsPlainText -Force
     $credential = New-Object System.Management.Automation.PSCredential($request.Username, $secure)
@@ -22,8 +22,42 @@ try {
         $stage = if ($request.Operation -eq 'PreviewDeployment') { 'deployment preview' } else { 'remote deployment' }
         $d = $request.Deployment
         $arguments = @($d.SiteName, $d.ApplicationName, $d.AppPoolName, $d.SourcePath, $d.TargetPath, $d.BackupPath,
-            $request.Options.BackupRoot, $true, ($request.Operation -eq 'PreviewDeployment'), $d.ExpectedState, $d.SitePort, $d.SiteHostName)
+            $request.Options.BackupRoot, $true, ($request.Operation -eq 'PreviewDeployment'), $d.ExpectedState, $d.SitePort, $d.SiteHostName,
+            $d.CdPackage, $(if ($d.CdPackage) { [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'CdPackageSecurity.ps1')) } else { '' }))
         $result = Invoke-Command -Session $session -FilePath (Join-Path $PSScriptRoot 'Deploy-IISApplication.ps1') -ArgumentList $arguments
+    } elseif ($request.Operation -eq 'StageCd') {
+        $stage = 'private CD staging'
+        $cd = $request.CdStage
+        $helpers = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'CdPackageSecurity.ps1'))
+        $initialize = [scriptblock]::Create('param($Cd)' + "`n" + $helpers + @'
+
+Assert-CdPrivateRoot $Cd.RemoteRoot
+if (@(Get-ChildItem -LiteralPath $Cd.RemoteRoot -Directory -Force).Count -ge 10) { throw 'Remote preparation capacity reached; operator retention review required.' }
+$expected = Join-Path (Join-Path $Cd.RemoteRoot ([guid]$Cd.PreparationId).ToString('N')) 'publish'
+if ($expected -cne $Cd.SourcePath -or (Test-Path -LiteralPath (Split-Path $expected -Parent))) { throw 'Invalid or reused preparation.' }
+if (@($Cd.Files).Count -lt 1 -or @($Cd.Files).Count -gt 1000 -or ($Cd.Files | Measure-Object Size -Sum).Sum -gt 268435456) { throw 'Package limit exceeded.' }
+New-Item -ItemType Directory -Path $expected | Out-Null
+foreach ($file in $Cd.Files) {
+    $relative = $file.Path.Replace('/', '\')
+    Assert-CdRelativePath $relative
+    if ($file.Size -lt 0 -or $file.Size -gt 67108864 -or $file.Sha256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Invalid file manifest.' }
+    $parent = Split-Path (Join-Path $expected $relative) -Parent
+    if (!(Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    Assert-CdNoLinks $parent
+}
+'@)
+        Invoke-Command -Session $session -ScriptBlock $initialize -ArgumentList $cd | Out-Null
+        . (Join-Path $PSScriptRoot 'CdPackageSecurity.ps1')
+        foreach ($file in $cd.Files) {
+            Assert-CdNoLinks $file.LocalPath
+            $item = Get-Item -LiteralPath $file.LocalPath
+            if ($item.PSIsContainer -or $item.Length -ne $file.Size -or (Get-FileHash -LiteralPath $file.LocalPath -Algorithm SHA256).Hash -ine $file.Sha256) { throw 'Local package integrity changed.' }
+            Copy-Item -LiteralPath $file.LocalPath -Destination (Join-Path $cd.SourcePath $file.Path.Replace('/', '\')) -ToSession $session
+        }
+        $body = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Prepare-CdPackage.ps1'))
+        $body = $body -replace '^param\(\$Request\)\s*', ''
+        $prepare = [scriptblock]::Create('param($Request)' + "`n" + $helpers + "`n" + $body)
+        $result = Invoke-Command -Session $session -ScriptBlock $prepare -ArgumentList $cd
     } elseif ($request.Operation -eq 'ListSites') {
         $stage = 'IIS site inventory'
         $result = Invoke-Command -Session $session -ScriptBlock {
@@ -49,7 +83,8 @@ try {
     }
     # Only the fixed result contract crosses the process boundary.
     [pscustomobject]@{ Success = [bool]$result.Success; Message = [string]$result.Message; ServerName = [string]$result.ServerName;
-        OperatingSystem = [string]$result.OperatingSystem; BackupPath = [string]$result.BackupPath; TotalMemoryBytes = $result.TotalMemoryBytes; StateFingerprint = $result.StateFingerprint; DeploymentMode = $result.DeploymentMode; Sites = @($result.Sites | Where-Object { $null -ne $_ }) } | ConvertTo-Json -Compress
+        OperatingSystem = [string]$result.OperatingSystem; BackupPath = [string]$result.BackupPath; TotalMemoryBytes = $result.TotalMemoryBytes; StateFingerprint = $result.StateFingerprint; DeploymentMode = $result.DeploymentMode; Sites = @($result.Sites | Where-Object { $null -ne $_ });
+        EffectiveManifestJson = $result.EffectiveManifestJson; ConfigurationManifestJson = $result.ConfigurationManifestJson; ConfigurationDigest = $result.ConfigurationDigest; Verified = [bool]$result.Verified; Verification = $result.Verification } | ConvertTo-Json -Compress -Depth 8
     if ($result.Success) { $exitCode = 0 }
 } catch {
     # Expose only a fixed stage and numeric error code; never raw exception text or request values.

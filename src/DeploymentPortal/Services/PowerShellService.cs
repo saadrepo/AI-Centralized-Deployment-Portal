@@ -5,15 +5,30 @@ using Microsoft.Extensions.Options;
 
 namespace DeploymentPortal.Services;
 public enum RemoteOperation { TestConnection, GetBasicServerInfo, PreviewDeployment, Deploy, PreviewDeleteSite, DeleteSite, ListSites }
-public record RemoteResult(bool Success, string Message, string ServerName = "", string OperatingSystem = "", string? BackupPath = null, long? TotalMemoryBytes = null, string? StateFingerprint = null, string? DeploymentMode = null, IReadOnlyList<IisSite>? Sites = null);
+public record RemoteResult(bool Success, string Message, string ServerName = "", string OperatingSystem = "", string? BackupPath = null, long? TotalMemoryBytes = null, string? StateFingerprint = null, string? DeploymentMode = null, IReadOnlyList<IisSite>? Sites = null,
+    string? EffectiveManifestJson = null, string? ConfigurationManifestJson = null, string? ConfigurationDigest = null, bool Verified = false, string? Verification = null);
 public record IisSite(string Name, string State, string Bindings);
 public interface IPowerShellService
 {
     Task<RemoteResult> ExecuteAsync(RemoteOperation operation, Server server, RemoteCredential credential, Deployment? deployment = null);
+    Task<RemoteResult> StageCdAsync(Server server, RemoteCredential credential, CdStageRequest request) => throw new InvalidOperationException("CD staging is not supported by this automation provider.");
 }
 public class PowerShellService(IHostEnvironment environment, IOptions<AutomationOptions> options) : IPowerShellService
 {
-    public async Task<RemoteResult> ExecuteAsync(RemoteOperation operation, Server server, RemoteCredential credential, Deployment? deployment = null)
+    public Task<RemoteResult> ExecuteAsync(RemoteOperation operation, Server server, RemoteCredential credential, Deployment? deployment = null) => RunAsync(new
+    {
+        Operation = operation.ToString(), server.HostNameOrIp, server.WinRmPort, server.UseSsl,
+        credential.Username, credential.Password, Options = options.Value,
+        Deployment = deployment is null ? null : new { deployment.Id, deployment.SiteName, deployment.ApplicationName, deployment.AppPoolName, deployment.SourcePath, deployment.TargetPath, deployment.BackupPath, deployment.SitePort, deployment.SiteHostName, deployment.ExpectedState, deployment.CdPackage }
+    }, operation == RemoteOperation.Deploy);
+
+    public Task<RemoteResult> StageCdAsync(Server server, RemoteCredential credential, CdStageRequest request) => RunAsync(new
+    {
+        Operation = "StageCd", server.HostNameOrIp, server.WinRmPort, server.UseSsl, credential.Username, credential.Password,
+        Options = options.Value, CdStage = request
+    }, true);
+
+    private async Task<RemoteResult> RunAsync(object request, bool longOperation)
     {
         if (!OperatingSystem.IsWindows()) return new(false, "Automation requires a Windows dashboard host.");
         var start = new ProcessStartInfo
@@ -28,14 +43,9 @@ public class PowerShellService(IHostEnvironment environment, IOptions<Automation
             process.Start();
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync(); // Drain, but never log raw PowerShell output.
-            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
-            {
-                Operation = operation.ToString(), server.HostNameOrIp, server.WinRmPort, server.UseSsl,
-                credential.Username, credential.Password, Options = options.Value,
-                Deployment = deployment is null ? null : new { deployment.Id, deployment.SiteName, deployment.ApplicationName, deployment.AppPoolName, deployment.SourcePath, deployment.TargetPath, deployment.BackupPath, deployment.SitePort, deployment.SiteHostName, deployment.ExpectedState }
-            }));
+            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request));
             process.StandardInput.Close();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(operation == RemoteOperation.Deploy ? options.Value.DeploymentTimeoutSeconds + 60 : options.Value.ConnectionTimeoutSeconds + 15));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(longOperation ? options.Value.DeploymentTimeoutSeconds + 60 : options.Value.ConnectionTimeoutSeconds + 15));
             await process.WaitForExitAsync(timeout.Token);
             var output = await stdout;
             await stderr;

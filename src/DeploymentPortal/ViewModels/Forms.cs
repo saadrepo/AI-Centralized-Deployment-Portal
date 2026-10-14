@@ -33,6 +33,8 @@ public class DeploymentForm : IValidatableObject
     [Required, StringLength(500), Display(Name = "Package folder on target server")] public string SourcePath { get; set; } = "";
     [Required, StringLength(500), Display(Name = "Target physical path")] public string TargetPath { get; set; } = "";
     public string? ConfirmationToken { get; set; }
+    public Guid? PreparationId { get; set; }
+    [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever] public Services.CdRemoteSnapshot? CdProvenance { get; set; }
     [Range(1, 65535), Display(Name = "HTTP port for a new site")] public int SitePort { get; set; } = 8080;
     [StringLength(253), RegularExpression(@"^[a-zA-Z0-9](?:[a-zA-Z0-9.\-]*[a-zA-Z0-9])?$"), Display(Name = "Hostname for a new site (optional)")] public string? SiteHostName { get; set; }
     [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever] public string? PlanMessage { get; set; }

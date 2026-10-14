@@ -8,7 +8,7 @@
         <h3 class="fs-6">What would you like to do?</h3>
         <p>Try an example or type your own request.</p>
         <div class="d-grid gap-2 mb-4" aria-label="Example commands">
-            @foreach (var command in new[] { "Deploy Portal on DEV server", "Show available sites to deploy", "Check IIS status on DEV server", "Show last 5 deployments", "Restart IIS for Portal" })
+            @foreach (var command in new[] { "Deploy Portal on DEV server", "Show latest Portal Dev build", "Check Portal deployment status", "Deploy Portal latest Dev build on Deployment_1" })
             {
                 <button type="button" class="btn btn-outline-secondary assistant-example text-start">@command</button>
             }

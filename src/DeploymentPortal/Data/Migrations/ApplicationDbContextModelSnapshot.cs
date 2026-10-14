@@ -22,6 +22,68 @@ namespace DeploymentPortal.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("DeploymentPortal.Models.CdDeploymentSource", b =>
+                {
+                    b.Property<Guid>("PreparationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Artifact")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("AuditJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Branch")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("BuildId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BuildNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Commit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("Expires")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ProtectedSnapshot")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Verification")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("PreparationId");
+
+                    b.HasIndex("DeploymentId")
+                        .IsUnique()
+                        .HasFilter("[DeploymentId] IS NOT NULL");
+
+                    b.ToTable("CdDeploymentSources");
+                });
+
             modelBuilder.Entity("DeploymentPortal.Models.Deployment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -171,6 +233,16 @@ namespace DeploymentPortal.Data.Migrations
                     b.ToTable("Servers");
                 });
 
+            modelBuilder.Entity("DeploymentPortal.Models.CdDeploymentSource", b =>
+                {
+                    b.HasOne("DeploymentPortal.Models.Deployment", "Deployment")
+                        .WithOne("CdSource")
+                        .HasForeignKey("DeploymentPortal.Models.CdDeploymentSource", "DeploymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Deployment");
+                });
+
             modelBuilder.Entity("DeploymentPortal.Models.Deployment", b =>
                 {
                     b.HasOne("DeploymentPortal.Models.Server", "Server")
@@ -180,6 +252,11 @@ namespace DeploymentPortal.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Server");
+                });
+
+            modelBuilder.Entity("DeploymentPortal.Models.Deployment", b =>
+                {
+                    b.Navigation("CdSource");
                 });
 #pragma warning restore 612, 618
         }

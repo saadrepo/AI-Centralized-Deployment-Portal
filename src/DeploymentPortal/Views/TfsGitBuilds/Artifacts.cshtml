@@ -1,0 +1,64 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsGitCiArtifactsPageViewModel
+@{
+    ViewData["Title"] = "CI Build Artifacts";
+    string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+}
+<div class="page-heading">
+    <div><div class="eyebrow">TFS Git</div><h1>Build artifacts <span class="badge bg-secondary fs-6">Read-only</span></h1><p>deployment-portal-poc-CI · Dev</p></div>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary" asp-action="Index">Back to CI builds</a>
+        @if (Model.Build is { } selected)
+        { <a class="btn btn-outline-secondary" asp-action="Artifacts" asp-route-id="@selected.Id">Refresh artifacts</a> }
+    </div>
+</div>
+@if (Model.Error is string error)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+@if (Model.Build is { } build)
+{
+    <section class="panel mb-4">
+        <div class="panel-heading"><h2>Build @Display(build.BuildNumber)</h2></div>
+        <dl class="detail-grid">
+            <dt>Build ID</dt><dd>@build.Id</dd>
+            <dt>Branch</dt><dd>@Display(build.BranchName)</dd>
+            <dt>Commit</dt><dd class="text-break"><code>@Display(build.SourceVersion)</code></dd>
+            <dt>Status</dt><dd>@Display(build.Status)</dd>
+            <dt>Result</dt><dd>@(string.IsNullOrWhiteSpace(build.Result) ? "Not available yet" : build.Result)</dd>
+        </dl>
+    </section>
+    @if (Model.ArtifactsError is string artifactsError)
+    {
+        <div class="alert alert-danger" role="alert">@artifactsError</div>
+    }
+    else if (Model.Artifacts.Count == 0)
+    {
+        <div class="alert alert-secondary" role="status">No artifacts are available for this build yet.</div>
+    }
+    else
+    {
+        <section class="panel">
+            <div class="panel-heading"><h2>Available artifacts</h2></div>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th scope="col">Name</th><th scope="col">Type</th></tr></thead>
+                    <tbody>
+                    @foreach (var artifact in Model.Artifacts)
+                    {
+                        <tr><td>@Display(artifact.Name)
+                            @if (string.Equals(artifact.Name, "drop", StringComparison.Ordinal))
+                            { <span class="badge bg-primary">CI artifact</span>
+                                @if (build.Status == "completed" && build.Result == "succeeded")
+                                { <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsArtifacts" asp-action="Index" asp-route-id="@build.Id">Explore files</a>
+                                  <a class="btn btn-outline-primary btn-sm ms-2" asp-controller="TfsCd" asp-action="Prepare" asp-route-id="@build.Id">Prepare Deployment</a> }
+                            }
+                        </td><td>@Display(artifact.Resource?.Type)</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        @if (!Model.Artifacts.Any(artifact => string.Equals(artifact.Name, "drop", StringComparison.Ordinal)))
+        { <div class="alert alert-secondary mt-3" role="status">The drop artifact is not available for this build.</div> }
+    }
+}

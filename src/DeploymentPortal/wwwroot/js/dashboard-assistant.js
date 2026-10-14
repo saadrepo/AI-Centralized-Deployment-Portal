@@ -148,6 +148,25 @@
             const response = await fetch(form.action, { method: 'POST', body: payload, credentials: 'same-origin', signal: AbortSignal.timeout(30000) });
             const result = await response.json().catch(() => null);
             if (!response.ok) throw new Error(result?.message || 'Could not prepare the request. Refresh the page and try again.');
+            if (['ShowLatestBuild', 'CheckDeploymentStatus', 'PrepareArtifact'].includes(result?.intent) && typeof result.message === 'string') {
+                addMessage('demo', `Assistant: ${result.message}`);
+                if (result.link) {
+                    const linkUrl = new URL(result.link, window.location.origin);
+                    if (linkUrl.origin === window.location.origin && /^\/(TfsGitBuilds\/Artifacts|Deployments\/Details|TfsCd\/Prepare)(\/|\?)/.test(linkUrl.pathname + linkUrl.search)) {
+                        const link = document.createElement('a');
+                        link.href = linkUrl.href;
+                        link.textContent = 'View details';
+                        link.className = 'btn btn-outline-primary btn-sm mb-3';
+                        messages.appendChild(link);
+                    }
+                }
+                announce('Read-only query complete.');
+                busy = false;
+                syncSend();
+                form.removeAttribute('aria-busy');
+                input.focus();
+                return;
+            }
             if (result?.intent !== 'DeploySite' || !result.fields) throw new Error('Unexpected assistant response. Nothing was submitted for review.');
             const review = document.createElement('form');
             review.method = 'POST';

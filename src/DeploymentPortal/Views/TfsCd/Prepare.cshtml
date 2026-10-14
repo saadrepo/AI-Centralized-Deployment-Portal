@@ -1,0 +1,20 @@
+@model DeploymentPortal.Controllers.CdPreparePage
+@{ ViewData["Title"] = "Prepare artifact deployment"; }
+<div class="page-heading"><div><div class="eyebrow">Controlled TFS Git CD</div><h1>Prepare Deployment</h1><p>Pin a successful build and select a registered IIS destination.</p></div><a class="btn btn-outline-primary" asp-controller="TfsGitBuilds" asp-action="Artifacts" asp-route-id="@Model.BuildId">Back to artifact</a></div>
+@if (Model.Error is { } error) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (!Model.Enabled) { <div class="alert alert-info" role="status">CD staging is disabled by default. Remote staging, configuration protection and Review integration remain blocked pending approval and WinRM verification.</div> }
+@if (Model.Targets.Count == 0) { <div class="alert alert-secondary" role="status">No registered IIS destination matches @Model.ApplicationKey. Register the configured hostname in Servers; numeric server IDs are not required.</div> }
+else
+{
+    <section class="panel mb-4"><div class="panel-heading"><h2>Choose destination</h2></div><form method="get" class="form-body">
+    <input type="hidden" name="id" value="@Model.BuildId" /><input type="hidden" name="applicationKey" value="@Model.ApplicationKey" />
+    <label class="form-label" for="server-host">Registered server / site</label><select class="form-select mb-3" name="serverHost" id="server-host" required><option value="">Select a registered destination</option>
+    @foreach (var target in Model.Targets) { <option value="@target.Host" selected="@(Model.Selection?.Server.HostNameOrIp == target.Host)">@target.Name (@target.Host) / @target.Site</option> }
+    </select><button class="btn btn-outline-primary" type="submit" disabled="@(!Model.Enabled)">Inspect selection</button></form></section>
+}
+@if (Model.Selection is { } selection)
+{
+    <section class="panel"><div class="panel-heading"><h2>Build and target selection</h2></div><dl class="detail-grid">
+    <dt>Build</dt><dd>@selection.Listing.Build.Id / @selection.Listing.Build.BuildNumber</dd><dt>Branch</dt><dd>@selection.Listing.Build.SourceBranch</dd><dt>Commit</dt><dd><code>@selection.Listing.Build.SourceVersion</code></dd><dt>Artifact</dt><dd>@selection.Listing.Artifact</dd><dt>Server</dt><dd>@selection.Server.DisplayName (@selection.Server.HostNameOrIp)</dd><dt>Environment</dt><dd>@selection.Server.Environment</dd><dt>IIS site / application</dt><dd>@selection.Destination.SiteName / @selection.Destination.ApplicationName</dd><dt>Destination</dt><dd><code>@selection.Destination.TargetPath</code></dd><dt>Inspection</dt><dd>@selection.Listing.Entries.Count metadata entries. Remote IIS preflight has not run.</dd></dl>
+    <form asp-action="Stage" method="post" class="form-body"><input type="hidden" name="buildId" value="@Model.BuildId" /><input type="hidden" name="applicationKey" value="@Model.ApplicationKey" /><input type="hidden" name="serverHost" value="@selection.Server.HostNameOrIp" /><button class="btn btn-primary" disabled="@(!Model.Enabled)">Stage package on portal</button><p class="soft-note mt-3">Preparation does not approve or queue a deployment. Existing target settings must be preserved and remote IIS Review must pass before human confirmation can be offered.</p></form></section>
+}

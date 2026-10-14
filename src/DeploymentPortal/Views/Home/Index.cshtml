@@ -8,6 +8,7 @@
     var onlinePercent = total == 0 ? 0 : (int)Math.Round(online * 100d / total);
     var offlinePercent = total == 0 ? 0 : (int)Math.Round(offline * 100d / total);
 }
+
 <div class="page-heading dashboard-heading"><div><div class="eyebrow">YOUR OPERATIONS, CONNECTED</div><h1>Deployment overview<span class="heading-dot">.</span></h1><p>A clear view of your infrastructure. A better way to ship.</p></div><div class="dashboard-actions"><a class="btn btn-outline-secondary" asp-controller="Servers" asp-action="Create"><partial name="_Icon" model='@("plus")' /> Add server</a><a class="btn btn-primary" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> New deployment</a></div></div>
 
 <partial name="_DashboardAssistant" />

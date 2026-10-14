@@ -1,0 +1,13 @@
+{
+  "TfsCd": {
+    "ExplorerEnabled": false,
+    "Enabled": false,
+    "ExecutionEnabled": false,
+    "RemoteStagingRoot": "",
+    "LocalStagingRoot": "",
+    "MaximumPackageBytes": 268435456,
+    "MaximumFileBytes": 67108864,
+    "MaximumFiles": 1000,
+    "MaximumPreparations": 10
+  }
+}

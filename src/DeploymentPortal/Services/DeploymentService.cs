@@ -18,21 +18,33 @@ public interface IDeploymentService
     Task<Guid> QueueAsync(DeploymentForm form);
     Task ExecuteAsync(Deployment deployment);
 }
-public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptions> options, IDataProtectionProvider protection, IWinRmService winRm, ICredentialProvider credentials, IPowerShellService powerShell) : IDeploymentService
+public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptions> options, IDataProtectionProvider protection, IWinRmService winRm, ICredentialProvider credentials, IPowerShellService powerShell, ICdDeploymentFlow? cd = null) : IDeploymentService
 {
     private readonly IDataProtector protector = protection.CreateProtector("DeploymentConfirmation.v2");
-    private record Confirmation(Guid Id, DateTimeOffset Expires, string Request, string Server, string State, string Mode);
+    private record Confirmation(Guid Id, DateTimeOffset Expires, string Request, string Server, string State, string Mode, string? CdDigest = null);
     private static string Request(DeploymentForm f) => JsonSerializer.Serialize(new { f.ServerId, f.Environment, f.ApplicationName, f.SiteName, f.AppPoolName, f.SourcePath, f.TargetPath, f.SitePort, f.SiteHostName });
     private static string Fingerprint(Server s) => JsonSerializer.Serialize(new { s.Id, s.HostNameOrIp, s.WinRmPort, s.UseSsl, s.Username, s.Environment });
-    public Task<List<Deployment>> ListAsync(int take = 100) => db.Deployments.AsNoTracking().Include(x => x.Server).OrderByDescending(x => x.StartedAt).Take(take).ToListAsync();
+    public async Task<List<Deployment>> ListAsync(int take = 100)
+    {
+        IQueryable<Deployment> query = db.Deployments.AsNoTracking().Include(x => x.Server);
+        if (await CdSchema.AvailableAsync(db)) query = query.Include(x => x.CdSource);
+        return await query.OrderByDescending(x => x.StartedAt).Take(take).ToListAsync();
+    }
     public Task<int> CountAsync() => db.Deployments.CountAsync();
-    public Task<Deployment?> FindAsync(Guid id) => db.Deployments.AsNoTracking().Include(x => x.Server).SingleOrDefaultAsync(x => x.Id == id);
+    public async Task<Deployment?> FindAsync(Guid id)
+    {
+        IQueryable<Deployment> query = db.Deployments.AsNoTracking().Include(x => x.Server);
+        if (await CdSchema.AvailableAsync(db)) query = query.Include(x => x.CdSource);
+        return await query.SingleOrDefaultAsync(x => x.Id == id);
+    }
     public async Task<Server> ValidateAsync(DeploymentForm form)
     {
         Validator.ValidateObject(form, new(form), true);
         DeploymentPaths.Validate(form.SourcePath, form.TargetPath, options.Value);
         var server = await db.Servers.FindAsync(form.ServerId) ?? throw new ArgumentException("Select an existing server.");
         if (server.Environment != form.Environment) throw new ArgumentException("Deployment environment must match the selected server.");
+        if (form.PreparationId.HasValue && cd is null) throw new ArgumentException("CD integration is unavailable.");
+        if (cd is not null) await cd.ValidateAsync(form, server);
         return server;
     }
     public async Task<string> ConfirmAsync(DeploymentForm form)
@@ -41,15 +53,16 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
         var id = Guid.NewGuid();
         var previewRequest = new Deployment { Id = id, SiteName = form.SiteName, ApplicationName = form.ApplicationName,
             AppPoolName = form.AppPoolName, SourcePath = form.SourcePath, TargetPath = form.TargetPath,
-            BackupPath = options.Value.BackupRoot.TrimEnd('\\') + "\\" + id.ToString("N"), SitePort = form.SitePort, SiteHostName = form.SiteHostName };
+            BackupPath = options.Value.BackupRoot.TrimEnd('\\') + "\\" + id.ToString("N"), SitePort = form.SitePort, SiteHostName = form.SiteHostName, CdPackage = form.CdProvenance };
         RemoteResult preview;
         try { preview = await powerShell.ExecuteAsync(RemoteOperation.PreviewDeployment, server, await credentials.GetAsync(server), previewRequest); }
         catch (InvalidOperationException ex) { throw new ArgumentException(ex.Message); }
         if (!preview.Success) throw new ArgumentException(preview.Message);
+        if (form.PreparationId.HasValue && preview.DeploymentMode != "Update") throw new ArgumentException("CD supports existing IIS application updates only.");
         if (string.IsNullOrWhiteSpace(preview.StateFingerprint) || preview.DeploymentMode is not ("CreateSite" or "CreateApplication" or "Update"))
             throw new ArgumentException("Could not verify the IIS deployment plan. Try reviewing again.");
         form.PlanMessage = preview.Message; form.PlanMode = preview.DeploymentMode;
-        return protector.Protect(JsonSerializer.Serialize(new Confirmation(id, DateTimeOffset.UtcNow.AddMinutes(10), Request(form), Fingerprint(server), preview.StateFingerprint, preview.DeploymentMode)));
+        return protector.Protect(JsonSerializer.Serialize(new Confirmation(id, DateTimeOffset.UtcNow.AddMinutes(10), Request(form), Fingerprint(server), preview.StateFingerprint, preview.DeploymentMode, form.CdProvenance is null ? null : CdDeploymentFlow.Digest(form.CdProvenance))));
     }
     public async Task<Guid> QueueAsync(DeploymentForm form)
     {
@@ -58,9 +71,16 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
         Confirmation? confirmation;
         try { confirmation = JsonSerializer.Deserialize<Confirmation>(protector.Unprotect(form.ConfirmationToken ?? "")); }
         catch { throw new ArgumentException("Review and confirm the deployment again."); }
-        if (confirmation is null || confirmation.Expires < DateTimeOffset.UtcNow || confirmation.Request != Request(form) || confirmation.Server != Fingerprint(server))
+        if (confirmation is null || confirmation.Expires < DateTimeOffset.UtcNow || confirmation.Request != Request(form) || confirmation.Server != Fingerprint(server) || confirmation.CdDigest != (form.CdProvenance is null ? null : CdDeploymentFlow.Digest(form.CdProvenance)))
             throw new ArgumentException("Confirmation expired or deployment details changed. Review the deployment again.");
         if (await db.Deployments.AnyAsync(x => x.Id == confirmation.Id)) return confirmation.Id;
+        CdDeploymentSource? cdSource = null;
+        if (form.PreparationId is { } preparationId)
+        {
+            cdSource = await db.CdDeploymentSources.SingleAsync(x => x.PreparationId == preparationId);
+            if (cdSource.DeploymentId is { } existing) return existing;
+            if (confirmation.Mode != "Update") throw new ArgumentException("CD only permits application updates.");
+        }
         var deployment = new Deployment
         {
             Id = confirmation.Id, ServerId = server.Id, ApplicationName = form.ApplicationName, Environment = form.Environment,
@@ -70,6 +90,11 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
             Status = DeploymentStatus.Queued, ResultMessage = "Confirmed and queued for deployment."
         };
         db.Deployments.Add(deployment);
+        if (cdSource is not null)
+        {
+            cdSource.DeploymentId = deployment.Id; cdSource.Deployment = deployment; cdSource.ApprovedAt = DateTimeOffset.UtcNow;
+            CdDeploymentFlow.Audit(cdSource, "Confirmed", "Human confirmation accepted through the portal; one deployment queued. Individual approver identity is unavailable.");
+        }
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException)
         {
@@ -83,11 +108,15 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
     {
         deployment.Status = DeploymentStatus.Running; deployment.StartedAt = DateTimeOffset.UtcNow;
         deployment.ResultMessage = "Checking connectivity and preparing deployment.";
+        if (deployment.CdSource is not null) CdDeploymentFlow.Audit(deployment.CdSource, "Running", "Worker started; revalidating protected provenance and target identity.");
         await db.SaveChangesAsync();
         try
         {
             DeploymentPaths.Validate(deployment.SourcePath, deployment.TargetPath, options.Value);
             if (deployment.Environment != deployment.Server.Environment) throw new ArgumentException("The server environment changed. Create a new deployment.");
+            if (deployment.CdSource is not null)
+                deployment.CdPackage = cd is null ? throw new ArgumentException("CD execution integration is unavailable.") : await cd.LoadForExecutionAsync(deployment);
+            else cd?.ValidateManualPaths(deployment.SourcePath, deployment.TargetPath);
             var connection = await winRm.TestConnectionAsync(deployment.Server);
             deployment.Server.LastCheckedAt = connection.Timestamp;
             deployment.Server.LastConnectionStatus = connection.Success ? ConnectionStatus.Online : ConnectionStatus.Offline;
@@ -95,13 +124,21 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
             else
             {
                 var result = await powerShell.ExecuteAsync(RemoteOperation.Deploy, deployment.Server, await credentials.GetAsync(deployment.Server), deployment);
-                deployment.Status = result.Success ? DeploymentStatus.Successful : DeploymentStatus.Failed;
+                var cdVerified = result.Verified && !string.IsNullOrWhiteSpace(result.Verification);
+                deployment.Status = result.Success && (deployment.CdSource is null || cdVerified) ? DeploymentStatus.Successful : DeploymentStatus.Failed;
                 deployment.ResultMessage = result.Message;
+                if (deployment.CdSource is { } source)
+                {
+                    if (result.Success && !cdVerified) deployment.ResultMessage = "CD execution did not provide required IIS verification evidence. Inspect target and retained backup.";
+                    source.VerifiedAt = result.Success && cdVerified ? DateTimeOffset.UtcNow : null;
+                    source.Verification = result.Verification;
+                }
             }
         }
         catch (ArgumentException ex) { deployment.Status = DeploymentStatus.Failed; deployment.ResultMessage = ex.Message; }
         catch { deployment.Status = DeploymentStatus.Failed; deployment.ResultMessage = "Deployment could not complete. Verify the target state and backup before retrying."; }
         deployment.CompletedAt = DateTimeOffset.UtcNow;
+        if (deployment.CdSource is not null) CdDeploymentFlow.Audit(deployment.CdSource, deployment.Status.ToString(), deployment.ResultMessage);
         await db.SaveChangesAsync();
     }
 }

@@ -26,7 +26,10 @@ public static class TfsGitClientConfiguration
         }).ConfigurePrimaryHttpMessageHandler(provider => CreatePrimaryHandler(
             provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))
             .AddHttpMessageHandler(provider => new TfsGitRequestGuard(
-                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl)));
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl)))
+            .AddTypedClient<ITfsGitBuildService, TfsGitBuildService>()
+            .AddTypedClient<ITfsArtifactExplorer, TfsArtifactExplorer>()
+            .AddTypedClient<ITfsCdPreparation, TfsCdPreparation>();
         return services;
     }
 

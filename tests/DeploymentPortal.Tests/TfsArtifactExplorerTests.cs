@@ -55,7 +55,7 @@ public class TfsArtifactExplorerTests
         var items = JsonSerializer.Serialize(new { value = new[] { new { path = first, itemType = "file", fileLength = 1 }, new { path = second, itemType = "file", fileLength = 1 } } });
         using var handler = new Handler(artifact, items);
         using var client = Client(handler);
-        if (first == "drop") await Assert.ThrowsAsync<ArgumentException>(() => Explorer(client).InspectAsync(3));
+        if (first == "drop") Assert.Equal(CdFailureCode.ArtifactCount,(await Assert.ThrowsAsync<CdPreparationException>(() => Explorer(client).InspectAsync(3))).Code);
         else await Assert.ThrowsAsync<InvalidOperationException>(() => Explorer(client).InspectAsync(3));
     }
 
@@ -67,7 +67,7 @@ public class TfsArtifactExplorerTests
         using var handler = new Handler(Artifact, Items);
         using var client = Client(handler);
         var build = Build(); build.Result = result; build.Status = status;
-        await Assert.ThrowsAsync<ArgumentException>(() => Explorer(client, build).InspectAsync(3));
+        Assert.Equal(CdFailureCode.BuildState,(await Assert.ThrowsAsync<CdPreparationException>(() => Explorer(client, build).InspectAsync(3))).Code);
         Assert.Empty(handler.Paths);
     }
 

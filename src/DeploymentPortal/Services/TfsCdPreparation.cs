@@ -10,7 +10,12 @@ using Microsoft.Extensions.Options;
 
 namespace DeploymentPortal.Services;
 
-public sealed class CdPreparationException(string message) : ArgumentException(message);
+public enum CdFailureCode { PolicyRejected, StagingRootPolicy, BuildScope, BuildState, ArtifactCount, ArtifactType }
+public enum CdPreparationStage { Configuration, PrivateDirectory, Selection, PackageValidation, Download, Revalidation, Persistence }
+public sealed class CdPreparationException(string message, CdFailureCode code = CdFailureCode.PolicyRejected) : ArgumentException(message)
+{
+    public CdFailureCode Code { get; } = code;
+}
 
 public sealed class TfsCdOptions
 {
@@ -71,7 +76,8 @@ public sealed class WindowsPrivateCdStagingRoot : IPrivateCdStagingRoot
 // Preparation only. Has no confirmation, queue, worker or PowerShell dependency.
 public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer explorer, ISiteRegistry registry,
     IServerService servers, IOptions<TfsCdOptions> options, IDataProtectionProvider protection,
-    IHostEnvironment environment, IOptions<AutomationOptions> automation, IPrivateCdStagingRoot privateRoot) : ITfsCdPreparation
+    IHostEnvironment environment, IOptions<AutomationOptions> automation, IPrivateCdStagingRoot privateRoot,
+    ILogger<TfsCdPreparation>? logger = null) : ITfsCdPreparation
 {
     private static readonly SemaphoreSlim stagingLock = new(1, 1);
     private readonly IDataProtector protector = protection.CreateProtector("TfsCdPreparation.v1");
@@ -102,6 +108,18 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
 
     public async Task<CdPreparation> StageAsync(string applicationKey, int buildId, string serverHost, CancellationToken cancellationToken = default)
     {
+        var stage = CdPreparationStage.Configuration;
+        try { return await StageCoreAsync(applicationKey, buildId, serverHost, value => stage = value, cancellationToken); }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or JsonException or IOException or UnauthorizedAccessException or OperationCanceledException or ValidationException or CryptographicException)
+        {
+            logger?.LogWarning("CD local preparation rejected. BuildId={BuildId} Stage={Stage} Reason={Reason} FailureType={FailureType}",
+                buildId, stage, ex is CdPreparationException known ? known.Code.ToString() : "OperationRejected", ex.GetType().Name);
+            throw;
+        }
+    }
+
+    private async Task<CdPreparation> StageCoreAsync(string applicationKey, int buildId, string serverHost, Action<CdPreparationStage> stage, CancellationToken cancellationToken)
+    {
         if (!Enabled) throw new CdPreparationException("TFS Git CD is disabled. An administrator must approve and enable private preparation staging first.");
         var root = ApprovedRoot(); // Before network I/O or filesystem mutation.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -110,12 +128,15 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
         string? packageDirectory = null;
         try
         {
+            stage(CdPreparationStage.PrivateDirectory);
             EnsureNoLinks(root);
             privateRoot.Validate(root);
             if (Directory.EnumerateFileSystemEntries(root).Any(x => !Directory.Exists(x) || !Guid.TryParseExact(Path.GetFileName(x), "N", out _)))
                 throw new CdPreparationException("CD staging root must be dedicated to portal preparations and contain no unrelated files.");
             if (Directory.GetDirectories(root).Length >= options.Value.MaximumPreparations) throw new CdPreparationException("Preparation capacity reached. Ask an administrator to remove expired, unreferenced preparations.");
+            stage(CdPreparationStage.Selection);
             var selection = await SelectAsync(applicationKey, buildId, serverHost, deadline.Token);
+            stage(CdPreparationStage.PackageValidation);
             var listing = selection.Listing;
             var build = listing.Build;
             var identitySnapshot = Identity(listing);
@@ -141,6 +162,7 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
             var content = Child(packageDirectory, "content");
             Directory.CreateDirectory(content);
             var manifest = new List<CdFile>();
+            stage(CdPreparationStage.Download);
             foreach (var file in files.OrderBy(x => x.Path, StringComparer.Ordinal))
             {
                 var destination = Child(content, file.Path.Replace('/', Path.DirectorySeparatorChar));
@@ -175,6 +197,7 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
                 manifest.Add(new(file.Path, written, Convert.ToHexString(hash.GetHashAndReset())));
             }
             // Re-resolve the same pinned build/artifact, never latest, after transfer.
+            stage(CdPreparationStage.Revalidation);
             var refreshed = await SelectAsync(applicationKey, buildId, serverHost, deadline.Token);
             if (Identity(refreshed.Listing) != identitySnapshot || TargetIdentity(refreshed) != targetSnapshot) throw new InvalidOperationException("Artifact identity, metadata or target selection changed during retrieval.");
             var prepared = new CdPreparation(id, DateTimeOffset.UtcNow.AddHours(1), selection.Application.Key,
@@ -183,6 +206,7 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
                 listing.Artifact, listing.ContainerId, listing.ContainerRoot, publishRoot, Digest(manifest), manifest,
                 "PortalStagedBlocked: authenticated remote staging, configuration preservation and protected Review are not yet enabled.",
                 selection.Application.TfsGitCiDefinitionId!.Value, selection.Application.TfsGitProject, selection.Application.TfsGitRepository);
+            stage(CdPreparationStage.Persistence);
             await File.WriteAllTextAsync(Child(packageDirectory, "preparation.dat"), protector.Protect(JsonSerializer.Serialize(prepared)), deadline.Token);
             return prepared;
         }
@@ -235,7 +259,11 @@ public sealed class TfsCdPreparation(HttpClient client, ITfsArtifactExplorer exp
         if (string.IsNullOrWhiteSpace(value.LocalStagingRoot) || !Path.IsPathFullyQualified(value.LocalStagingRoot) || value.MaximumPackageBytes is <= 0 or > 1024L * 1024 * 1024 || value.MaximumFileBytes <= 0 || value.MaximumFileBytes > value.MaximumPackageBytes || value.MaximumFiles is < 1 or > 10000 || value.MaximumPreparations is < 1 or > 100)
             throw new CdPreparationException("Configure an approved private local staging root and bounded CD limits.");
         var root = Path.GetFullPath(value.LocalStagingRoot).TrimEnd(Path.DirectorySeparatorChar);
-        if (OperatingSystem.IsWindows()) DeploymentPaths.Validate(root, @"C:\CdValidation\target", automation.Value);
+        if (OperatingSystem.IsWindows())
+        {
+            try { DeploymentPaths.Validate(root, @"C:\CdValidation\target", automation.Value); }
+            catch (ArgumentException) { throw new CdPreparationException("Local staging root or backup policy is invalid. Use a dedicated private application directory outside protected Windows folders, web content and backup paths. No files were downloaded.", CdFailureCode.StagingRootPolicy); }
+        }
         var web = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "wwwroot"));
         if (root.Equals(Path.GetPathRoot(root)?.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || root.Equals(web, StringComparison.OrdinalIgnoreCase) || root.StartsWith(web + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || web.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || root.StartsWith(@"\\", StringComparison.Ordinal)) throw new CdPreparationException("CD staging must be a private local directory outside web content and drive roots.");
         return root;

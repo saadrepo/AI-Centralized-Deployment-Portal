@@ -20,6 +20,41 @@ namespace DeploymentPortal.Tests;
 public class TfsCdPreparationTests
 {
     [Fact]
+    public void ConfirmedSourceConfigurationReproducesOriginalFailureAndApprovedRootPassesPolicy()
+    {
+        var automation=new AutomationOptions { BackupRoot=@"C:\DeploymentBackups" };
+        var original=Assert.Throws<ArgumentException>(()=>DeploymentPaths.Validate(@"C:\ProgramData\DeploymentPortal\CdStaging",@"C:\CdValidation\target",automation));
+        Assert.Equal("Use an application directory, not a protected Windows or user-profile directory.",original.Message);
+        DeploymentPaths.Validate(@"C:\DeploymentPortalData\CdStaging",@"C:\CdValidation\target",automation);
+        DeploymentPaths.Validate(@"C:\CdValidation\package",@"C:\Sites\CdDemo",automation);
+    }
+    [Theory]
+    [InlineData(@"C:\ProgramData\DeploymentPortal\CdStaging")]
+    [InlineData(@"C:\ProgramData\password=synthetic-only")]
+    [InlineData(@"C:\Windows\Temp\CdStaging")]
+    [InlineData(@"C:\DeploymentBackups\CdStaging")]
+    public async Task ProtectedStagingRootsRemainRejectedWithSafeDiagnosticCode(string root)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var fixture=new Fixture(demo:true);
+        fixture.Options.LocalStagingRoot=root;
+        var error=await Assert.ThrowsAsync<CdPreparationException>(()=>fixture.Service.StageAsync("Demo",9,"dev-host"));
+        Assert.Equal(CdFailureCode.StagingRootPolicy,error.Code);
+        Assert.Equal(0,fixture.Explorer.Calls); Assert.Equal(0,fixture.Handler.Calls);
+        var logs=string.Join("\n",fixture.Logger.Messages);
+        Assert.Contains("BuildId=9",logs); Assert.Contains("Stage=Configuration",logs); Assert.Contains("Reason=StagingRootPolicy",logs);
+        Assert.DoesNotContain(root,logs); Assert.DoesNotContain("synthetic-only",logs); Assert.DoesNotContain("synthetic-only",error.Message);
+    }
+
+    [Fact]
+    public async Task DemoBuildNineStagesWithCorrectProvenanceAtApprovedPrivateRoot()
+    {
+        using var fixture=new Fixture(useRealExplorer:true,demo:true);
+        fixture.Explorer.Listing.Build.Id=9;
+        var prepared=await fixture.Service.StageAsync("Demo",9,"dev-host");
+        Assert.Equal(9,prepared.BuildId); Assert.Equal(2,prepared.DefinitionId); Assert.Equal(@"C:\Sites\CdDemo",prepared.TargetPath);
+    }
+    [Fact]
     public async Task DemoPreparationPinsDefinitionRepositoryAndDestinationWithoutQueueing()
     {
         using var fixture = new Fixture(useRealExplorer: true, demo: true);
@@ -228,6 +263,7 @@ public class TfsCdPreparationTests
         public Servers Servers { get; } = new();
         public Explorer Explorer { get; } = new();
         public Handler Handler { get; } = new();
+        public CaptureLogger Logger { get; } = new();
         public TfsCdOptions Options { get; }
         public TfsCdPreparation Service { get; }
         private readonly HttpClient client;
@@ -248,7 +284,7 @@ public class TfsCdPreparationTests
                 var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["TfsGit:Project"] = "deployment-portal-poc", ["TfsGit:ApiVersion"] = "4.1" }).Build();
                 inspector = new TfsArtifactExplorer(client, new TfsGitBuildService(client, config), config);
             }
-            Service = new(client, inspector, Registry, Servers, Microsoft.Extensions.Options.Options.Create(Options), new EphemeralDataProtectionProvider(), new Environment(), Microsoft.Extensions.Options.Options.Create(new AutomationOptions()), new TestPrivateRoot());
+            Service = new(client, inspector, Registry, Servers, Microsoft.Extensions.Options.Options.Create(Options), new EphemeralDataProtectionProvider(), new Environment(), Microsoft.Extensions.Options.Options.Create(new AutomationOptions()), new TestPrivateRoot(),Logger);
         }
         public void Dispose()
         {
@@ -290,8 +326,17 @@ public class TfsCdPreparationTests
         public TfsArtifactListing Listing { get; set; } = new(new() { Id = 3, Definition = new() { Id = 1 }, SourceBranch = "refs/heads/Dev", Status = "completed", Result = "succeeded", SourceVersion = new string('a', 40), Repository = new() { Id = Guid.NewGuid().ToString(), Name = "deployment-portal-poc", Type = "TfsGit" }, Project = new() { Id = Guid.NewGuid(), Name = "deployment-portal-poc" } }, "drop", [new("publish/web.config", false, 2), new("publish/app.dll", false, 2)]) { ContainerId = 12, ContainerRoot = "drop" };
         public Task<TfsArtifactListing> InspectAsync(int id, CancellationToken cancellationToken = default)
         {
-            Assert.Equal(3, id); Calls++;
+            Assert.Equal(Listing.Build.Id, id); Calls++;
             return Task.FromResult(ChangeAfterFirst && Calls > 1 ? Listing with { ContainerId = 99 } : Listing);
+        }
+    }
+    private sealed class CaptureLogger : Microsoft.Extensions.Logging.ILogger<TfsCdPreparation>
+    {
+        public List<string> Messages { get; }=[];
+        public IDisposable? BeginScope<TState>(TState state) where TState:notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level)=>true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level,Microsoft.Extensions.Logging.EventId id,TState state,Exception? error,Func<TState,Exception?,string> formatter) {
+            Assert.Null(error); Messages.Add(formatter(state,error));
         }
     }
     private sealed class Builds : ITfsGitBuildService

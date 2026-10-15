@@ -78,7 +78,8 @@ public sealed class TfsCdController(ITfsCdPreparation preparation, ISiteRegistry
     private static bool IsFailure(Exception ex) => ex is ArgumentException or InvalidOperationException or HttpRequestException or JsonException or IOException or UnauthorizedAccessException or OperationCanceledException or System.ComponentModel.DataAnnotations.ValidationException;
     private string SafeFailure(Exception ex)
     {
-        logger.LogWarning("CD preparation failed ({FailureType}).", ex.GetType().Name);
+        logger.LogWarning("CD preparation failed ({FailureType}). Reason={Reason} TraceId={TraceId}", ex.GetType().Name,
+            ex is CdPreparationException known ? known.Code.ToString() : "OperationRejected", HttpContext.TraceIdentifier);
         // No raw path, URL, upstream response, configuration value or credential is rendered.
         return ex is CdPreparationException ? ex.Message : "Artifact preparation could not complete safely. Verify TFS access, private staging permissions, package limits and provenance. No deployment was queued.";
     }

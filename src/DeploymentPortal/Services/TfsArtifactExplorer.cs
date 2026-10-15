@@ -32,10 +32,10 @@ public sealed class TfsArtifactExplorer(HttpClient client, ITfsGitBuildService b
     public Task<TfsArtifactListing> InspectAsync(int buildId, RegistryApplication app, CancellationToken cancellationToken = default) { TfsApplicationScope.Validate(app); return InspectCoreAsync(buildId, app, cancellationToken); }
     private async Task<TfsArtifactListing> InspectCoreAsync(int buildId, RegistryApplication? app, CancellationToken cancellationToken)
     {
-        var build = (app is null ? await builds.GetBuildAsync(buildId) : await builds.GetBuildAsync(buildId, app)) ?? throw new ArgumentException("Select a build from the configured application's Dev CI pipeline.");
-        if (app is not null && !TfsApplicationScope.Matches(app, build)) throw new ArgumentException("Build does not match the selected application.");
+        var build = (app is null ? await builds.GetBuildAsync(buildId) : await builds.GetBuildAsync(buildId, app)) ?? throw new CdPreparationException("Select a build from the configured application's Dev CI pipeline.", CdFailureCode.BuildScope);
+        if (app is not null && !TfsApplicationScope.Matches(app, build)) throw new CdPreparationException("Build does not match the selected application.", CdFailureCode.BuildScope);
         if (build.Status != "completed" || build.Result != "succeeded")
-            throw new ArgumentException("Artifact inspection requires a completed, successful Dev build.");
+            throw new CdPreparationException("Artifact inspection requires a completed, successful Dev build.", CdFailureCode.BuildState);
         if (!Regex.IsMatch(build.SourceVersion ?? "", "^[a-fA-F0-9]{40}$", RegexOptions.CultureInvariant))
             throw new InvalidOperationException("The build has no valid Git commit identity.");
         var project = app?.TfsGitProject ?? configuration["TfsGit:Project"];
@@ -43,10 +43,10 @@ public sealed class TfsArtifactExplorer(HttpClient client, ITfsGitBuildService b
         if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(version)) throw new InvalidOperationException("TFS Git configuration is incomplete.");
         var artifacts = await ReadAsync<Artifact>($"{Uri.EscapeDataString(project)}/_apis/build/builds/{buildId}/artifacts?api-version={Uri.EscapeDataString(version)}", cancellationToken);
         var drops = artifacts.Where(x => x.Name == "drop").ToList();
-        if (drops.Count != 1) throw new ArgumentException("This build must have exactly one drop artifact.");
+        if (drops.Count != 1) throw new CdPreparationException("This build must have exactly one drop artifact.", CdFailureCode.ArtifactCount);
         var resource = drops[0].Resource;
         if (!string.Equals(resource?.Type, "Container", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Only TFS Container artifacts can be explored. No file-share access is performed.");
+            throw new CdPreparationException("Only TFS Container artifacts can be explored. No file-share access is performed.", CdFailureCode.ArtifactType);
         var match = Regex.Match(resource!.Data ?? "", @"^#/([1-9][0-9]*)/(.+)$", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
         if (!match.Success || !long.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var containerId))
             throw new InvalidOperationException("Invalid artifact container identity.");

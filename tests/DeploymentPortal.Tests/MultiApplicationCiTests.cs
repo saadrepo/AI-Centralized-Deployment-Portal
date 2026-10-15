@@ -68,7 +68,7 @@ public class MultiApplicationCiTests
         using var client=Client(handler); var builds=new TfsGitBuildService(client,Configuration());
         Assert.Null(await builds.GetBuildAsync(20,Demo()));
         await Assert.ThrowsAsync<InvalidOperationException>(()=>builds.GetArtifactsAsync(20,Demo()));
-        await Assert.ThrowsAsync<ArgumentException>(()=>new TfsArtifactExplorer(client,builds,Configuration()).InspectAsync(20,Demo()));
+        Assert.Equal(CdFailureCode.BuildScope,(await Assert.ThrowsAsync<CdPreparationException>(()=>new TfsArtifactExplorer(client,builds,Configuration()).InspectAsync(20,Demo()))).Code);
         Assert.All(handler.Paths,path=>Assert.DoesNotContain("artifacts",path));
     }
 

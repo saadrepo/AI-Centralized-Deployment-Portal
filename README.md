@@ -1,5 +1,8 @@
 # DeployHQ — Windows Server Deployment Portal
 
+Production IIS storage: see [persistent encrypted keys and CD staging diagnostics](docs/iis-storage-and-staging.md)
+for administrator provisioning, the ProgramData staging-root policy failure and SOURCE setup steps.
+
 Phase 1 ASP.NET Core MVC application for Windows server inventory, controlled WinRM connection tests, confirmed IIS application deployments, and a first Docker build-and-run workflow. Uses .NET 10, Razor, locally bundled Bootstrap 5, EF Core and SQL Server. No AI/MCP, identity/RBAC, AD/Entra integration, pipelines, or advanced logging is implemented.
 
 ## Docker Deployments

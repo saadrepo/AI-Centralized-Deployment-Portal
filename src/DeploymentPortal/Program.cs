@@ -26,7 +26,7 @@ builder.Services.AddControllersWithViews(options => options.Filters.Add(new Auto
 builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddOptions<AutomationOptions>().BindConfiguration("Automation")
     .Validate(x => x.ConnectionTimeoutSeconds is >= 5 and <= 120 && x.DeploymentTimeoutSeconds is >= 60 and <= 3600, "Invalid automation timeouts.").ValidateOnStart();
-builder.Services.AddDataProtection();
+builder.Services.AddPortalDataProtection(builder.Environment);
 if (builder.Environment.IsDevelopment())
     builder.Services.AddScoped<ICredentialProvider, DevelopmentCredentialProvider>();
 else

@@ -1,0 +1,38 @@
+@{ ViewData["Title"] = "CI/CD Pipeline"; }
+@section Styles { <link rel="stylesheet" href="~/css/pipeline.css" asp-append-version="true" /> }
+<div class="pipeline-page" id="pipeline" data-base="@Url.Action("Index", "Pipeline")">
+    <header class="pipeline-heading"><h1>CI/CD Pipeline</h1><p>Run build and deployment from one place.</p></header>
+    @Html.AntiForgeryToken()
+    <div id="pipeline-message" class="pipeline-message" role="status" aria-live="polite">Connecting to TFS…</div>
+    <section class="pipeline-filters" aria-label="Pipeline selection">
+        <label>Application<select id="pipeline-application" disabled><option>Loading…</option></select></label>
+        <label>Repository / Build Definition<select id="pipeline-definition" disabled><option>Select application</option></select></label>
+        <label>Build<select id="pipeline-build" disabled><option>Select application</option></select></label>
+        <label>Environment<select id="pipeline-environment" disabled><option>Select application</option></select></label>
+        <label>Branch<select id="pipeline-branch" disabled><option>Select application</option></select></label>
+    </section>
+    <div class="pipeline-actions">
+        <button id="pipeline-run" class="btn btn-primary" disabled aria-busy="false"><span id="pipeline-queue-spinner" class="spinner-border spinner-border-sm" hidden aria-hidden="true"></span><svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z" /></svg><span id="pipeline-run-label">Run CI Build</span></button>
+        <button id="pipeline-cancel" class="btn btn-outline-danger" hidden disabled>Cancel Build</button>
+        <button id="pipeline-approve" class="btn btn-outline-primary" disabled><partial name="_Icon" model='@("rocket")' /> Approve &amp; Deploy</button>
+        <button id="pipeline-refresh" class="btn btn-outline-primary"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7V2m0 5h-5M20 7a9 9 0 1 0 1 9" /></svg> Refresh Status</button>
+        <small id="pipeline-updated"></small>
+    </div>
+    <p id="pipeline-action-reason" class="pipeline-note"></p>
+    <section class="pipeline-stages" aria-label="Live pipeline stages" id="pipeline-stages">
+        @foreach (var stage in new[] { "Source", "Build", "Publish Artifact", "Approval", "Deploy to IIS", "Verify Health" }) {
+            <div class="pipeline-stage pending"><span class="stage-icon" aria-hidden="true">○</span><strong>@stage</strong><small>Pending</small></div>
+        }
+    </section>
+    <div class="pipeline-live-grid">
+        <section class="pipeline-card"><header><h2><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12h4l3-9 5 18 3-9h5" /></svg> Live Deployment Progress</h2><div class="pipeline-live-context"><small id="pipeline-context">Select a build</small><span id="pipeline-status" class="pipeline-overall pending" role="status">Pending</span></div></header><div id="pipeline-timeline" class="pipeline-timeline"><p>No build selected.</p></div></section>
+        <section class="pipeline-card"><header><h2><partial name="_Icon" model='@("terminal")' /> Live TFS Logs</h2><label class="pipeline-scroll">Auto-scroll <input type="checkbox" id="pipeline-autoscroll" checked /></label></header><pre id="pipeline-logs" tabindex="0" aria-label="Live TFS logs">Select a build to read actual TFS logs.</pre><small class="pipeline-log-note">Latest build log tails and available release task logs. Older logs remain in TFS.</small></section>
+    </div>
+    <section class="pipeline-card"><header><h2>Pending Releases / Approval Status</h2></header><div id="pipeline-pending-releases" class="pipeline-branches">Select a release environment.</div></section>
+    <div class="pipeline-bottom-grid">
+        <section class="pipeline-card"><header><h2>⑂ Git Branches</h2><small>Repository overview</small></header><div id="pipeline-branches" class="pipeline-branches">Select an application.</div></section>
+        <section class="pipeline-card pipeline-ai"><header><h2>✧ AI Assistant</h2><span class="pipeline-preview">Preview</span></header><p>Text and voice assistance are not connected yet.</p><div class="pipeline-suggestions"><span>Build selected application</span><span>Show latest build</span><span>Compare branches</span><span>Explain build failure</span><span>Show pending approvals</span></div><input disabled aria-label="Assistant unavailable" placeholder="Assistant preview — not connected" /><small>Future actions will follow the same approval rules.</small></section>
+        <section class="pipeline-card"><header><h2><partial name="_Icon" model='@("clock")' /> Recent Activity</h2></header><div id="pipeline-activity" class="pipeline-activity">No TFS activity loaded.</div></section>
+    </div>
+</div>
+@section Scripts { <script src="~/js/pipeline.js" asp-append-version="true"></script> }

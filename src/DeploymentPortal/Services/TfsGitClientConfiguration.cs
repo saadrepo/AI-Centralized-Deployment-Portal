@@ -34,6 +34,21 @@ public static class TfsGitClientConfiguration
             .AddTypedClient<ITfsGitBuildService, TfsGitBuildService>()
             .AddTypedClient<ITfsArtifactExplorer, TfsArtifactExplorer>()
             .AddTypedClient<ITfsCdPreparation, TfsCdPreparation>();
+        // Pipeline reads retain the same credential and collection guard as the Git explorer.
+        services.AddHttpClient<PipelineService>((provider, client) =>
+        {
+            client.BaseAddress = GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        }).ConfigurePrimaryHttpMessageHandler(provider => CreatePrimaryHandler(
+            provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl,
+            () => provider.GetRequiredService<ITfsWindowsCredentialProvider>().GetCredential(
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))))
+            .AddHttpMessageHandler(provider => new TfsGitRequestGuard(
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl)));
+        services.TryAddScoped<IPipelineUserTransport, PipelineUserTransport>();
+        services.TryAddScoped<IPipelineHealthCheck, PipelineHealthCheck>();
+        services.AddHttpClient("PipelineHealth", client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false, UseDefaultCredentials = false });
         return services;
     }
 

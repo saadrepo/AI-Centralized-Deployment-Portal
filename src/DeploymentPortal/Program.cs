@@ -20,9 +20,11 @@ builder.Services.AddScoped<AssistantArtifactResolver>();
 builder.Services.AddScoped<ICdDeploymentFlow, CdDeploymentFlow>();
 builder.Services.AddSingleton<IPrivateCdStagingRoot, WindowsPrivateCdStagingRoot>();
 builder.Services.AddOptions<TfsCdOptions>().Bind(registryConfiguration.GetSection("TfsCd"));
+builder.Services.AddOptions<PipelineCiOptions>().BindConfiguration("Pipeline:Ci");
 
 // Add services to the container.
 builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+builder.Services.AddLocalWindowsAuthentication(builder.Environment);
 builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddOptions<AutomationOptions>().BindConfiguration("Automation")
     .Validate(x => x.ConnectionTimeoutSeconds is >= 5 and <= 120 && x.DeploymentTimeoutSeconds is >= 60 and <= 3600, "Invalid automation timeouts.").ValidateOnStart();
@@ -60,6 +62,13 @@ builder.Services.AddHostedService<DeploymentWorker>();
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue<int>("Automation:DeploymentTimeoutSeconds", 900) + 120));
 
 var app = builder.Build();
+if (app.Environment.IsDevelopment())
+{
+    var effectiveCd = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<TfsCdOptions>>().Value;
+    app.Logger.LogInformation("Local Pipeline CD switches: Enabled={Enabled}, EnabledSource={EnabledSource}, ExecutionEnabled={ExecutionEnabled}, ExecutionSource={ExecutionSource}. Windows identity and TFS approval checks remain required.",
+        effectiveCd.Enabled, PipelineConfigurationDiagnostics.Source(registryConfiguration, "TfsCd:Enabled"),
+        effectiveCd.ExecutionEnabled, PipelineConfigurationDiagnostics.Source(registryConfiguration, "TfsCd:ExecutionEnabled"));
+}
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler("/Home/Error");
@@ -79,6 +88,7 @@ app.Use(async (context, next) =>
 });
 app.UseRouting();
 
+app.UseLocalWindowsAuthentication(app.Environment);
 app.UseAuthorization();
 
 app.MapStaticAssets();

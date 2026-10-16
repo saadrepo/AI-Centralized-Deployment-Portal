@@ -7,7 +7,7 @@
     const base = root.dataset.base.replace(/\/?Index\/?$/i, '').replace(/\/$/, '');
     let generation = 0, pendingVersion = 0, refreshVersion = 0, abort = new AbortController(), timer, busy = false, mutation = false, failures = 0;
     let options, snapshot, actionUncertain = false, cancelRequestedId = null, cancelPendingReason = '', activeAction = null;
-    let decisionNotice = null;
+    let identityVersion = 0, decisionNotice = null;
     const ciHistory = new Map();
     const historyKey = id => `${app.value}:${id}`;
     const message = (text, error = false) => { get('message').textContent = text; get('message').classList.toggle('error', error); };
@@ -202,6 +202,7 @@
     }
     async function refresh(skipPending = false) {
         if (busy || mutation || !app.value) return;
+        personalIdentity();
         if (!options) { await load(); return; }
         if (!build.value) { schedule(); return; }
         const turn = generation, version = ++refreshVersion, args = selection(), scope = JSON.stringify(args);
@@ -328,6 +329,40 @@
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(timer); else refresh(); });
     window.addEventListener('pagehide', () => { clearTimeout(timer); abort.abort(); });
+    async function personalIdentity() {
+        const panel = get('personal-auth');
+        if (!panel) return;
+        const turn = ++identityVersion;
+        try {
+            const state = await request('Identity');
+            if (turn !== identityVersion) return;
+            panel.hidden = !state.enabled;
+            get('personal-status').textContent = state.connected ? `Personal TFS identity connected; expires ${date(state.expires)}.` : state.message;
+            get('personal-connect').disabled = !state.secure || state.connected;
+            get('personal-disconnect').disabled = !state.connected;
+        } catch { if (turn === identityVersion) panel.hidden = true; }
+    }
+    if (get('personal-form')) {
+        get('personal-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            if (mutation || busy || get('personal-connect').disabled) return;
+            get('personal-connect').disabled = true;
+            try {
+                const personalToken = get('personal-token').value;
+                get('personal-token').value = '';
+                const result = await request('Identity/Connect', { personalAccessToken: personalToken }, true);
+                get('personal-status').textContent = result.message;
+                await personalIdentity(); await refresh();
+            } catch (error) { get('personal-status').textContent = error.message; get('personal-connect').disabled = false; }
+            finally { get('personal-token').value = ''; }
+        });
+        get('personal-disconnect').addEventListener('click', async () => {
+            if (mutation || busy) return;
+            get('personal-disconnect').disabled = true;
+            try { await request('Identity/Disconnect', {}, true); await personalIdentity(); await refresh(); }
+            catch (error) { get('personal-status').textContent = error.message; }
+        });
+    }
     async function initialize() {
         try {
             const applications = await request('Applications');
@@ -339,5 +374,6 @@
             await load(saved?.applicationKey === app.value ? saved.buildId : undefined);
         } catch (error) { message(error.message, true); }
     }
+    personalIdentity();
     initialize();
 })();

@@ -23,7 +23,7 @@ class Element {
     replaceChildren(...nodes) { this._text = ''; this.children = [...nodes]; this._value = ''; }
     setAttribute(name, value) { this.attributes[name] = String(value); }
     addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
-    fire(name) { return (this.listeners[name] || []).map(callback => callback()); }
+    fire(name, event = { preventDefault() {} }) { return (this.listeners[name] || []).map(callback => callback(event)); }
     querySelector(selector) {
         if (selector.includes('RequestVerificationToken')) return { value: 'test-antiforgery' };
         return this.children.find(n => selector.startsWith('.') ? n.className.includes(selector.slice(1)) : n.tag === selector);
@@ -42,12 +42,13 @@ const state = (id = 14, overrides = {}) => ({
 });
 function fixture(overrides = {}) {
     const elements = new Map(), requests = [], timers = new Map(); let timerId = 0; const confirmation = { accepted: true, prompts: [] };
-    for (const name of ['pending-releases', 'pipeline', 'application', 'definition', 'build', 'environment', 'branch', 'run', 'run-label', 'queue-spinner', 'cancel', 'approve', 'refresh', 'message', 'action-reason', 'activity', 'stages', 'context', 'status', 'timeline', 'logs', 'autoscroll', 'updated', 'branches']) {
+    for (const name of ['personal-auth', 'personal-form', 'personal-token', 'personal-status', 'personal-connect', 'personal-disconnect', 'pending-releases', 'pipeline', 'application', 'definition', 'build', 'environment', 'branch', 'run', 'run-label', 'queue-spinner', 'cancel', 'approve', 'refresh', 'message', 'action-reason', 'activity', 'stages', 'context', 'status', 'timeline', 'logs', 'autoscroll', 'updated', 'branches']) {
         const select = ['application', 'definition', 'build', 'environment', 'branch'].includes(name);
         elements.set(name === 'pipeline' ? name : `pipeline-${name}`, new Element(select ? 'select' : 'div'));
     }
     elements.get('pipeline').dataset = { base: '/Pipeline' };
     const handlers = {
+        Identity: () => ({ enabled: false, secure: false, connected: false }),
         Applications: () => [{ id: 'Portal', name: 'Portal' }],
         Options: () => ({ definition: { id: '1', name: 'Portal CI' }, branches: [{ id: 'refs/heads/Dev', name: 'Dev' }], defaultBranch: 'refs/heads/Dev',
             environments: [{ definitionId: 7, id: 9, name: 'Portal-CD / SOURCE' }],
@@ -182,4 +183,23 @@ test('decision failure reason survives automatic status refresh', async () => {
     const f = fixture({ PendingReleases: () => ({ releases: [pendingRow] }), Reject: () => { throw new Error('HTTP 409 revision changed'); } });
     await tick(); f.get('pending-releases').querySelectorAll('button')[0].fire('click'); await tick();
     assert.match(f.get('message').textContent, /HTTP 409 revision changed/);
+});
+
+test('personal login uses POST body and clears token input after verified connection', async () => {
+    let connected = false;
+    const f = fixture({ Identity: () => ({ enabled: true, secure: true, connected }), Connect: () => { connected = true; return { message: 'Identity verified' }; } });
+    await tick(); f.get('personal-token').value = 'synthetic-personal-token';
+    f.get('personal-form').fire('submit'); await tick();
+    const call = f.requests.find(r => r.action === 'Connect');
+    assert.equal(call.method, 'POST');
+    assert.equal(call.args.get('personalAccessToken'), 'synthetic-personal-token');
+    assert.equal(f.get('personal-token').value, '');
+    assert.match(f.get('personal-status').textContent, /connected/);
+});
+test('personal login remains disabled when trusted HTTPS is unavailable', async () => {
+    const f = fixture({ Identity: () => ({ enabled: true, secure: false, connected: false, message: 'HTTPS required' }) });
+    await tick();
+    assert.equal(f.get('personal-connect').disabled, true);
+    f.get('personal-form').fire('submit'); await tick();
+    assert.equal(f.requests.filter(r => r.action === 'Connect').length, 0);
 });

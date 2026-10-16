@@ -85,7 +85,10 @@ public sealed class PipelineController(PipelineService pipeline, ILogger<Pipelin
                     upstreamStatus = (int?)ex.UpstreamStatus, upstreamType = ex.UpstreamType, mayHaveQueued = ex.MayHaveQueued, reference });
         }
         catch (UnauthorizedAccessException ex)
-        { return StatusCode(403, new { error = ex.Message.StartsWith("CD approval blocked:", StringComparison.Ordinal)
+        {
+            logger.LogWarning("Pipeline authorization denied: PortalSid={PortalSid}, User={User}, Reference={Reference}.",
+                PipelinePersonalSessions.Sid(User), User.Identity?.Name, HttpContext.TraceIdentifier);
+            return StatusCode(403, new { error = ex.Message.StartsWith("CD approval blocked:", StringComparison.Ordinal)
             ? ex.Message : "Action unavailable: verify execution settings, Windows identity and TFS approval permissions." }); }
         catch (ArgumentException)
         { return BadRequest(new { error = "Selection is invalid or has changed. Refresh the application, build and environment." }); }

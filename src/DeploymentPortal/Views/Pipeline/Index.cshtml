@@ -11,6 +11,18 @@
         <label>Environment<select id="pipeline-environment" disabled><option>Select application</option></select></label>
         <label>Branch<select id="pipeline-branch" disabled><option>Select application</option></select></label>
     </section>
+    <section id="pipeline-personal-auth" class="pipeline-card" hidden>
+        <header><h2>Personal TFS identity</h2></header>
+        <div class="pipeline-branches">
+            <p id="pipeline-personal-status">Checking personal TFS authentication...</p>
+            <form id="pipeline-personal-form" autocomplete="off">
+                <label>Your personal TFS PAT <input id="pipeline-personal-token" type="password" autocomplete="off" maxlength="2048" aria-label="Personal TFS access token" /></label>
+                <button id="pipeline-personal-connect" class="btn btn-outline-primary" type="submit">Connect own TFS account</button>
+                <button id="pipeline-personal-disconnect" class="btn btn-outline-secondary" type="button">Disconnect</button>
+            </form>
+            <small>Verified against your approved identity mapping. Session expires after 10 minutes; approval rules still apply.</small>
+        </div>
+    </section>
     <div class="pipeline-actions">
         <button id="pipeline-run" class="btn btn-primary" disabled aria-busy="false"><span id="pipeline-queue-spinner" class="spinner-border spinner-border-sm" hidden aria-hidden="true"></span><svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z" /></svg><span id="pipeline-run-label">Run CI Build</span></button>
         <button id="pipeline-cancel" class="btn btn-outline-danger" hidden disabled>Cancel Build</button>

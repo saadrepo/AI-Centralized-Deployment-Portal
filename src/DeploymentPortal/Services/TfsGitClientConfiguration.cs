@@ -45,7 +45,22 @@ public static class TfsGitClientConfiguration
                 GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))))
             .AddHttpMessageHandler(provider => new TfsGitRequestGuard(
                 GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl)));
-        services.TryAddScoped<IPipelineUserTransport, PipelineUserTransport>();
+        services.AddHttpContextAccessor();
+        services.AddOptions<PipelineWorkgroupOptions>().BindConfiguration("Pipeline:Workgroup");
+        services.TryAddSingleton<PipelinePersonalSessions>();
+        services.TryAddSingleton<IPipelinePersonalClientFactory, PipelinePersonalClientFactory>();
+        services.TryAddScoped<PipelineUserTransport>();
+        services.AddHttpClient("PipelineServiceCi", (provider, http) => {
+            http.BaseAddress = GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(30);
+            http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        }).ConfigurePrimaryHttpMessageHandler(provider => CreatePrimaryHandler(
+            provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl,
+            () => provider.GetRequiredService<ITfsWindowsCredentialProvider>().GetCredential(
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl))))
+            .AddHttpMessageHandler(provider => new PipelineActionGuard(
+                GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl), personal: false));
+        services.TryAddScoped<IPipelineUserTransport, PipelineWorkgroupTransport>();
         services.TryAddScoped<IPipelineHealthCheck, PipelineHealthCheck>();
         services.AddHttpClient("PipelineHealth", client => client.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false, UseDefaultCredentials = false });

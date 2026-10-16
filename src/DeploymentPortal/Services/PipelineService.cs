@@ -120,11 +120,11 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
     public bool CanQueue(ClaimsPrincipal user) => user.Identity?.IsAuthenticated == true && ci.Value.QueueEnabled && users.AvailableForBuild(user);
     private string QueueReason(ClaimsPrincipal user) => !ci.Value.QueueEnabled
         ? "CI queueing is disabled. Configure Pipeline:Ci:QueueEnabled for this environment."
-        : !users.AvailableForBuild(user) ? "CI requires your delegated Windows identity, or the same Windows user running local Development."
+        : !users.AvailableForBuild(user) ? "CI identity unavailable. Use delegation/local same-user login, or configure authorized Workgroup service CI (explicit Portal SID and TFS service identity)."
         : "CI is enabled; TFS validates the signed-in user's Queue builds permission. Deployment approval remains separately protected.";
     private string ExecutionReason(ClaimsPrincipal user) => !gates.Value.Enabled || !gates.Value.ExecutionEnabled
         ? "TfsCd execution is disabled by effective server configuration."
-        : !users.Available(user) ? "CD requires a delegated Windows login, or the same Windows user running local Development; TFS must verify that SID." : "TFS checks the signed-in user's permissions.";
+        : !users.Available(user) ? "CD requires a verified personal TFS session on workgroup SOURCE, or delegation/local same-user login. Connect your own TFS identity; service CI credentials cannot approve." : "TFS checks the signed-in user's permissions.";
     private void RequireExecution(ClaimsPrincipal user)
     {
         if (!CanExecute(user)) throw new UnauthorizedAccessException(ExecutionReason(user));

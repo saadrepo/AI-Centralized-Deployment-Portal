@@ -258,6 +258,7 @@
             panel.replaceChildren();
             panel.append(text('p', [data.explanation, data.executionReason, data.unresolvedReleaseIds?.length ? `Unresolved release IDs: ${data.unresolvedReleaseIds.join(', ')}` : '',
                 data.concurrencyCount ? `TFS concurrency: ${data.concurrencyCount}; queue depth: ${data.queueDepthCount || 'unavailable'}` : 'TFS queue policy unavailable.'].filter(Boolean).join(' ')));
+            const redeployButtons = new Set();
             data.releases.forEach(row => {
                 const item = text('div', '', 'pipeline-branch');
                 item.append(text('span', `${row.name} (ID ${row.releaseId}) | Build ID ${row.buildId} | Approval: ${row.approvalStatus} | Environment: ${row.environmentStatus}${row.operationStatus ? ` | Operation: ${row.operationStatus}` : ''}${row.deploymentQueueId ? ` | Queue ID: ${row.deploymentQueueId}` : ''}`));
@@ -303,6 +304,30 @@
                         finally { mutation = false; buttons(); await Promise.allSettled([pendingReleases(), refresh(true)]); }
                     });
                     item.append(cancelDeployment);
+                }
+                if (row.canRedeploy && !redeployButtons.has(row.releaseId)) {
+                    redeployButtons.add(row.releaseId);
+                    const redeploy = text('button', 'Redeploy', 'btn btn-outline-primary');
+                    redeploy.title = [row.redeployReason, row.redeployWarning].filter(Boolean).join(' ');
+                    redeploy.addEventListener('click', async () => {
+                        if (redeploy.disabled || mutation || busy || actionUncertain || turn !== generation || scope !== JSON.stringify(selection())) return;
+                        const warning = row.redeployWarning ? ` ${row.redeployWarning}` : '';
+                        if (!window.confirm(`Start a NEW deployment attempt for ${row.name} (Release ID ${row.releaseId}, Build ID ${row.buildId}, Environment ID ${row.releaseEnvironmentId})? TFS will enforce its release permissions and approval requirements. This is not Approve, Reject, Cancel or Abandon.${warning}`)) return;
+                        mutation = true; clearTimeout(timer); generation++; abort.abort(); abort = new AbortController();
+                        panel.querySelectorAll('button').forEach(button => { button.disabled = true; }); buttons();
+                        try {
+                            const result = await request('Redeploy', { ...args, buildId: row.buildId, releaseId: row.releaseId,
+                                releaseEnvironmentId: row.releaseEnvironmentId, deploymentAttemptId: row.deploymentAttemptId,
+                                deploymentAttempt: row.deploymentAttempt }, true);
+                            decisionNotice = { text: result.message, error: false }; message(result.message);
+                        } catch (error) {
+                            actionUncertain = error.mayHaveReachedTfs !== false;
+                            decisionNotice = { text: error.message, error: true }; message(error.message, true);
+                        } finally {
+                            mutation = false; buttons(); await Promise.allSettled([pendingReleases(), refresh(true)]);
+                        }
+                    });
+                    item.append(redeploy);
                 }
                 panel.append(item);
             });

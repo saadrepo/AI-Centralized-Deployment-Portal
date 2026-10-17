@@ -66,6 +66,15 @@ public sealed class PipelineController(PipelineService pipeline, ILogger<Pipelin
             return (object)new { message = "TFS confirmed the deployment cancellation request. Refreshing the exact release attempt." };
         }, true);
 
+    [HttpPost, ValidateAntiForgeryToken]
+    public Task<IActionResult> Redeploy(string applicationKey, int buildId, int releaseDefinitionId, int environmentId, int releaseId,
+        int releaseEnvironmentId, int deploymentAttemptId, int deploymentAttempt, CancellationToken cancellationToken) =>
+        Execute(async () => {
+            var started = await pipeline.Redeploy(applicationKey, buildId, releaseDefinitionId, environmentId, releaseId,
+                releaseEnvironmentId, deploymentAttemptId, deploymentAttempt, User, cancellationToken);
+            return (object)new { message = "TFS started a new deployment attempt for the cancelled release. Approval requirements remain controlled by TFS.", release = started };
+        }, true);
+
     private async Task<IActionResult> Execute(Func<Task<object>> action, bool mutation = false)
     {
         if (User.Identity?.IsAuthenticated != true) return StatusCode(401, new { error = "Sign in using your Windows account to access TFS." });
@@ -87,6 +96,13 @@ public sealed class PipelineController(PipelineService pipeline, ILogger<Pipelin
         catch (PipelineDeploymentCancellationException ex)
         {
             logger.LogWarning("CD deployment cancellation failed: HttpStatus={HttpStatus}, MayHaveReachedTfs={MayHaveReachedTfs}, PortalSid={PortalSid}, Reference={Reference}.",
+                ex.HttpStatus, ex.MayHaveReachedTfs, PipelinePersonalSessions.Sid(User), HttpContext.TraceIdentifier);
+            return StatusCode(ex.HttpStatus is 401 or 403 ? 403 : 409,
+                new { error = ex.Message, mayHaveReachedTfs = ex.MayHaveReachedTfs, reference = HttpContext.TraceIdentifier });
+        }
+        catch (PipelineRedeploymentException ex)
+        {
+            logger.LogWarning("CD redeployment failed: HttpStatus={HttpStatus}, MayHaveReachedTfs={MayHaveReachedTfs}, PortalSid={PortalSid}, Reference={Reference}.",
                 ex.HttpStatus, ex.MayHaveReachedTfs, PipelinePersonalSessions.Sid(User), HttpContext.TraceIdentifier);
             return StatusCode(ex.HttpStatus is 401 or 403 ? 403 : 409,
                 new { error = ex.Message, mayHaveReachedTfs = ex.MayHaveReachedTfs, reference = HttpContext.TraceIdentifier });

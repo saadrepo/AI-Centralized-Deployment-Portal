@@ -216,6 +216,37 @@ test('per-release approval confirms and submits the row even when another build 
     assert.equal(post.args.get('approvalId'), '31');
 });
 
+test('cancelled release redeploy confirms exact release and sends one new-attempt request', async () => {
+    const started = deferred();
+    const row = { ...pendingRow, releaseId: 18, name: 'Release-18', buildId: 31, approvalStatus: 'approved',
+        environmentStatus: 'canceled', releaseEnvironmentId: 90, deploymentAttemptId: 44, deploymentAttempt: 1,
+        canRedeploy: true, redeployReason: 'TFS will revalidate execution permission.' };
+    const f = fixture({ PendingReleases: () => ({ releases: [row] }), Redeploy: () => started.promise });
+    await tick();
+    const button = f.get('pending-releases').querySelectorAll('button').find(b => b.textContent === 'Redeploy');
+    button.fire('click'); button.fire('click');
+    assert.match(f.confirmation.prompts[0], /NEW deployment attempt/);
+    assert.match(f.confirmation.prompts[0], /Release ID 18, Build ID 31, Environment ID 90/);
+    assert.match(f.confirmation.prompts[0], /not Approve, Reject, Cancel or Abandon/);
+    const posts = f.requests.filter(r => r.action === 'Redeploy');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].args.get('releaseId'), '18');
+    assert.equal(posts[0].args.get('deploymentAttemptId'), '44');
+    started.resolve({ message: 'TFS started a new deployment attempt' }); await tick();
+});
+
+test('older cancelled release redeploy confirmation shows overwrite warning', async () => {
+    const row = { ...pendingRow, releaseId: 18, name: 'Release-18', buildId: 31, approvalStatus: 'approved',
+        environmentStatus: 'canceled', releaseEnvironmentId: 90, deploymentAttemptId: 44, deploymentAttempt: 1,
+        canRedeploy: true, redeployWarning: 'Warning: Build ID 33 deployed successfully after this build and could be overwritten.' };
+    const f = fixture({ PendingReleases: () => ({ releases: [row] }), Redeploy: () => ({ message: 'Started' }) });
+    await tick(); f.confirmation.accepted = false;
+    f.get('pending-releases').querySelectorAll('button').find(b => b.textContent === 'Redeploy').fire('click'); await tick();
+    assert.match(f.confirmation.prompts[0], /Build ID 33/);
+    assert.match(f.confirmation.prompts[0], /overwritten/);
+    assert.equal(f.requests.filter(r => r.action === 'Redeploy').length, 0);
+});
+
 test('declining main approval confirmation never sends a mutation', async () => {
     const f = fixture({ Status: () => state(14, { canApprove: true }) });
     await tick(); f.confirmation.accepted = false;

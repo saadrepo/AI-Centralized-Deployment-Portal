@@ -356,13 +356,14 @@ public sealed class PipelineTests
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.PendingReleases("Portal", 7, 9, default)).StatusCode);
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.Reject("Portal", 14, 7, 9, 5, 21, default)).StatusCode);
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.CancelDeployment("Portal", 14, 7, 9, 5, 90, 8, 1, default)).StatusCode);
+        Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.Redeploy("Portal", 14, 7, 9, 5, 90, 8, 1, default)).StatusCode);
         Assert.Empty(f.Read.Requests); Assert.Empty(f.Write.Requests);
     }
 
     [Fact]
     public void BothMutationActionsRequireAntiforgery()
     {
-        foreach (var method in new[] { "Queue", "Approve", "Cancel", "Reject", "CancelDeployment" })
+        foreach (var method in new[] { "Queue", "Approve", "Cancel", "Reject", "CancelDeployment", "Redeploy" })
             Assert.NotEmpty(typeof(PipelineController).GetMethod(method)!.GetCustomAttributes(typeof(ValidateAntiForgeryTokenAttribute), true));
     }
 
@@ -907,6 +908,68 @@ public sealed class PipelineTests
     }
 
     [Fact]
+    public async Task CancelledReleaseIsEligibleForRedeployAndStartsExactNewAttempt()
+    {
+        var f = new Fixture { DeploymentCancelled = true };
+        var pending = System.Text.Json.JsonSerializer.SerializeToNode(await f.Service.PendingReleases("Portal", 7, 9, User, default))!;
+        var row = Assert.Single(pending["releases"]!.AsArray())!;
+        Assert.True(row["CanRedeploy"]!.GetValue<bool>());
+        Assert.Equal(5, row["ReleaseId"]!.GetValue<int>());
+        Assert.Equal(90, row["releaseEnvironmentId"]!.GetValue<int>());
+
+        var result = System.Text.Json.JsonSerializer.SerializeToNode(await f.Service.Redeploy("Portal", 14, 7, 9, 5, 90, 8, 1, User, default))!;
+        var patch = Assert.Single(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+        Assert.EndsWith("/release/releases/5/environments/90", patch.Path);
+        Assert.Equal("inProgress", JsonNode.Parse(patch.Body!)!["status"]!.ToString());
+        Assert.Equal(2, result["deploymentAttempt"]!.GetValue<int>());
+        Assert.DoesNotContain(f.Write.Requests, r => r.Method != HttpMethod.Get && (r.Path.Contains("approvals") || r.Path.EndsWith("/release/releases")));
+    }
+
+    [Fact]
+    public async Task OlderCancelledReleaseWarnsWhenNewerBuildSucceeded()
+    {
+        var f = new Fixture { DeploymentCancelled = true, NewerSucceeded = true };
+        var pending = System.Text.Json.JsonSerializer.SerializeToNode(await f.Service.PendingReleases("Portal", 7, 9, User, default))!;
+        var older = pending["releases"]!.AsArray().Single(r => r!["BuildId"]!.GetValue<int>() == 14)!;
+        Assert.True(older["CanRedeploy"]!.GetValue<bool>());
+        Assert.Contains("Build ID 15", older["RedeployWarning"]!.ToString());
+        Assert.Contains("overwrite", older["RedeployWarning"]!.ToString());
+    }
+
+    [Fact]
+    public async Task ConcurrentEnvironmentDeploymentBlocksRedeployBeforePatch()
+    {
+        var f = new Fixture { DeploymentCancelled = true, NewerActive = true };
+        var pending = System.Text.Json.JsonSerializer.SerializeToNode(await f.Service.PendingReleases("Portal", 7, 9, User, default))!;
+        var older = pending["releases"]!.AsArray().Single(r => r!["BuildId"]!.GetValue<int>() == 14)!;
+        Assert.False(older["CanRedeploy"]!.GetValue<bool>());
+        Assert.Contains("Another release", older["RedeployReason"]!.ToString());
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.Redeploy("Portal", 14, 7, 9, 5, 90, 8, 1, User, default));
+        Assert.DoesNotContain(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+    }
+
+    [Fact]
+    public async Task RedeployRejectsNonCancelledOrStaleAttemptWithoutMutation()
+    {
+        var active = new Fixture();
+        await Assert.ThrowsAsync<ArgumentException>(() => active.Service.Redeploy("Portal", 14, 7, 9, 5, 90, 8, 1, User, default));
+        Assert.DoesNotContain(active.Write.Requests, r => r.Method == HttpMethod.Patch);
+
+        var stale = new Fixture { DeploymentCancelled = true };
+        await Assert.ThrowsAsync<ArgumentException>(() => stale.Service.Redeploy("Portal", 14, 7, 9, 5, 90, 7, 1, User, default));
+        Assert.DoesNotContain(stale.Write.Requests, r => r.Method == HttpMethod.Patch);
+    }
+
+    [Fact]
+    public async Task RedeployRequiresAuthorizedPortalIdentityBeforeAnyTfsMutation()
+    {
+        var f = new Fixture { DeploymentCancelled = true };
+        f.Users.Delegated = false;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.Redeploy("Portal", 14, 7, 9, 5, 90, 8, 1, User, default));
+        Assert.DoesNotContain(f.Write.Requests, r => r.Method != HttpMethod.Get);
+    }
+
+    [Fact]
     public async Task QueuedEnvironmentWithoutLiveApprovalCannotBeApproved()
     {
         var f = new Fixture { ReleaseTransform = r => { r["environments"]![0]!["status"] = "queued"; r["environments"]![0]!["preDeployApprovals"] = new JsonArray(); return r; } };
@@ -940,7 +1003,7 @@ public sealed class PipelineTests
         public bool NoRelease, DuplicateRelease, WrongBuild, NoDefinition, CreatorIsUser, DenyApproval, Deployed, MalformedQueueResponse, QueueTimeout;
         public string BuildStatus = "completed";
         public string? BuildResult = "succeeded";
-        public bool StopAllowed = true, CancelCompletesImmediately, BuildCompletesDuringPermission, TimelineMissing, SourceRunning, NoSource, NoArtifact, DeploymentActive, DeploymentCancelled;
+        public bool StopAllowed = true, CancelCompletesImmediately, BuildCompletesDuringPermission, TimelineMissing, SourceRunning, NoSource, NoArtifact, DeploymentActive, DeploymentCancelled, Redeployed, NewerSucceeded, NewerActive;
         public HttpStatusCode? QueueFailure, DefinitionFailure, ApprovalFailure;
         public Func<JsonNode, JsonNode>? ReleaseTransform;
         public JsonNode? LiveApprovals;
@@ -966,7 +1029,20 @@ public sealed class PipelineTests
         public JsonNode Release() { var release = ReleaseData(); if (DeploymentActive || DeploymentCancelled) { var env = release["environments"]![0]!;
             env["status"] = DeploymentCancelled ? "canceled" : "inProgress"; env["deploySteps"]![0]!["status"] = DeploymentCancelled ? "canceled" : "inProgress";
             env["deploySteps"]![0]!["operationStatus"] = DeploymentCancelled ? "canceled" : "phaseInProgress"; }
+            if (Redeployed) { var env = release["environments"]![0]!; env["status"] = "inProgress";
+                env["deploySteps"] = JsonNode.Parse("""[{"id":9,"attempt":2,"status":"notStarted","operationStatus":"pending","releaseDeployPhases":[]}]""");
+                env["preDeployApprovals"]![0]!["attempt"] = 2; env["preDeployApprovals"]![0]!["status"] = "pending"; }
             return ReleaseTransform?.Invoke(release) ?? release; }
+        private JsonNode NewerRelease()
+        {
+            var release = ReleaseData(); release["id"] = 6; release["name"] = "Release-6";
+            release["artifacts"]![0]!["definitionReference"]!["version"]!["id"] = "15";
+            var environment = release["environments"]![0]!; environment["id"] = 91; environment["status"] = NewerActive ? "inProgress" : "succeeded";
+            environment["preDeployApprovals"]![0]!["status"] = "approved";
+            environment["deploySteps"]![0]!["status"] = NewerActive ? "inProgress" : "succeeded";
+            environment["deploySteps"]![0]!["operationStatus"] = NewerActive ? "phaseInProgress" : "phaseSucceeded";
+            return release;
+        }
         private HttpResponseMessage Respond(HttpRequestMessage request)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -980,7 +1056,12 @@ public sealed class PipelineTests
             }
             if (path.EndsWith("/release/releases/5/environments/90"))
             {
-                if (request.Method == HttpMethod.Patch) DeploymentCancelled = true;
+                if (request.Method == HttpMethod.Patch)
+                {
+                    var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    if (JsonNode.Parse(body)?["status"]?.ToString() == "inProgress") { Redeployed = true; DeploymentCancelled = false; }
+                    else DeploymentCancelled = true;
+                }
                 return Json(Release()["environments"]![0]!.ToJsonString());
             }
             if (request.Method == HttpMethod.Patch && ApprovalFailure is { } approvalFailure)
@@ -1015,7 +1096,7 @@ public sealed class PipelineTests
             if (path.EndsWith("/tasks/11/logs")) return Plain("real release log");
             if (path.EndsWith("/release/definitions")) return Json($"{{\"value\":[{(NoDefinition ? "" : ReleaseDefinition().ToJsonString())}]}}");
             if (path.EndsWith("/release/definitions/7")) return Json(ReleaseDefinition().ToJsonString());
-            if (path.EndsWith("/release/releases")) return Json($"{{\"value\":[{(NoRelease ? "" : Release().ToJsonString() + (DuplicateRelease ? "," + Release().ToJsonString() : ""))}]}}");
+            if (path.EndsWith("/release/releases")) return Json($"{{\"value\":[{(NoRelease ? "" : Release().ToJsonString() + (DuplicateRelease ? "," + Release().ToJsonString() : "") + (NewerSucceeded || NewerActive ? "," + NewerRelease().ToJsonString() : ""))}]}}");
             if (path.EndsWith("/release/releases/12"))
             {
                 var wrong = Release(); wrong["id"] = 12;
@@ -1023,6 +1104,7 @@ public sealed class PipelineTests
                 return Json(wrong.ToJsonString());
             }
             if (path.EndsWith("/release/releases/5") || path.EndsWith("/release/releases/99")) return Json(Release().ToJsonString());
+            if (path.EndsWith("/release/releases/6")) return Json(NewerRelease().ToJsonString());
             if (path.EndsWith("/release/approvals")) return Json(LiveApprovals?.ToJsonString() ?? """{"value":[]}""");
             if (path.EndsWith("/release/approvals/21")) return Json($"{{\"id\":21,\"status\":\"{ConfirmedApprovalStatus}\"}}");
             if (path.EndsWith("/build/builds")) return Json("""{"value":[]}""");

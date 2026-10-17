@@ -71,6 +71,18 @@ public sealed partial class PipelineService
                         }
                     }
                 }
+                foreach (var row in rows)
+                {
+                    var attempt = PipelineTimeline.LatestAttempt(row.Environment);
+                    var denial = attempt is null ? "TFS did not return the cancelled deployment attempt."
+                        : RedeploymentDenial(row.Release, row.Environment, Number(attempt, "id"), Number(attempt, "attempt"), rows);
+                    row.CanRedeploy = denial is null;
+                    row.RedeployReason = denial ?? "TFS will revalidate release execution permission and start a new deployment attempt.";
+                    var newer = rows.Where(r => r.BuildId > row.BuildId && r.EnvironmentStatus == "succeeded")
+                        .OrderByDescending(r => r.BuildId).FirstOrDefault();
+                    if (newer is not null)
+                        row.RedeployWarning = $"Warning: Build ID {newer.BuildId} from {newer.Name} deployed successfully after this build. Redeploying Build ID {row.BuildId} could overwrite the newer version.";
+                }
                 return true;
             });
         return new {
@@ -85,7 +97,8 @@ public sealed partial class PipelineService
                     && DeploymentCancellationDenial(r.Release, r.Environment, Number(attempt, "id"), Number(attempt, "attempt")) is null,
                 deploymentCancelReason = !CanCancelDeployment(user) ? "Deployment cancellation is disabled or this Portal Windows SID is not authorized."
                     : PipelineTimeline.LatestAttempt(r.Environment) is not { } current ? "TFS did not return a current deployment attempt."
-                    : DeploymentCancellationDenial(r.Release, r.Environment, Number(current, "id"), Number(current, "attempt")) ?? "TFS will revalidate cancellation permission and current attempt." }),
+                    : DeploymentCancellationDenial(r.Release, r.Environment, Number(current, "id"), Number(current, "attempt")) ?? "TFS will revalidate cancellation permission and current attempt.",
+                r.CanRedeploy, r.RedeployReason, r.RedeployWarning }),
             executionReason = ExecutionReason(user),
             concurrencyCount = Text(configured["executionPolicy"], "concurrencyCount"),
             queueDepthCount = Text(configured["executionPolicy"], "queueDepthCount"),
@@ -102,5 +115,8 @@ public sealed partial class PipelineService
         public bool CanApprove { get; set; }
         public string? ApproveReason { get; set; }
         public string RejectReason { get; set; } = "Execution/Windows identity verification is required; see execution reason.";
+        public bool CanRedeploy { get; set; }
+        public string RedeployReason { get; set; } = "Only a cancelled deployment can be redeployed.";
+        public string? RedeployWarning { get; set; }
     }
 }

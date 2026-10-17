@@ -49,11 +49,33 @@ public sealed partial class PipelineService
                         row.RejectReason = ApprovalDenial(rd, row.Release, row.Environment, row.Approval, identity, eligible.Contains(row.ApprovalId)) ?? "TFS will revalidate this decision.";
                         row.CanReject = ApprovalAllowed(rd, row.Release, row.Environment, row.Approval, identity, eligible.Contains(row.ApprovalId));
                     }
+                    foreach (var buildGroup in group.Where(r => r.CanReject).GroupBy(r => r.BuildId))
+                    {
+                        try
+                        {
+                            var build = await Build(app, buildGroup.Key, definition, ct);
+                            var succeeded = Text(build, "status") == "completed" && Text(build, "result") == "succeeded";
+                            var artifacts = succeeded ? await List(Path(app, $"build/builds/{buildGroup.Key}/artifacts"), ct) : [];
+                            var published = artifacts.Any(a => Text(a, "name") == app.TfsGitArtifactName);
+                            foreach (var row in buildGroup)
+                            {
+                                row.CanApprove = succeeded && published;
+                                row.ApproveReason = !succeeded ? "CI must succeed before approval." : !published
+                                    ? "Expected artifact has not been published." : "TFS will revalidate this decision.";
+                            }
+                        }
+                        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
+                        {
+                            foreach (var row in buildGroup)
+                                row.ApproveReason = "CI build/artifact eligibility could not be verified. Approval is disabled.";
+                        }
+                    }
                 }
                 return true;
             });
         return new {
-            releases = rows.Select(r => new { r.ReleaseId, r.Name, r.BuildId, r.ApprovalId, r.ApprovalStatus, r.EnvironmentStatus, r.CanReject, r.RejectReason,
+            releases = rows.Select(r => new { r.ReleaseId, r.Name, r.BuildId, r.ApprovalId, r.ApprovalStatus, r.EnvironmentStatus, r.CanReject, r.RejectReason, r.CanApprove,
+                approveReason = r.ApproveReason ?? r.RejectReason,
                 operationStatus = Text(PipelineTimeline.LatestAttempt(r.Environment), "operationStatus"),
                 deploymentQueueId = Number(PipelineTimeline.LatestAttempt(r.Environment), "queueId") }),
             executionReason = ExecutionReason(user),
@@ -69,6 +91,8 @@ public sealed partial class PipelineService
         string EnvironmentStatus, bool Allowed, JsonNode Release, JsonNode Environment, JsonNode Approval)
     {
         public bool CanReject { get; set; } = Allowed;
+        public bool CanApprove { get; set; }
+        public string? ApproveReason { get; set; }
         public string RejectReason { get; set; } = "Execution/Windows identity verification is required; see execution reason.";
     }
 }

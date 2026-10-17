@@ -740,6 +740,7 @@ public sealed class PipelineTests
         Assert.Equal(5, row!["ReleaseId"]!.GetValue<int>());
         Assert.Equal(14, row["BuildId"]!.GetValue<int>());
         Assert.Equal("pending", row["ApprovalStatus"]!.ToString());
+        Assert.True(row["CanApprove"]!.GetValue<bool>());
         Assert.All(f.Read.Requests.Concat(f.Write.Requests), r => Assert.Equal(HttpMethod.Get, r.Method));
     }
 
@@ -848,6 +849,24 @@ public sealed class PipelineTests
     }
 
     [Fact]
+    public async Task ApproveExactReleaseDoesNotDependOnUniqueBuildReleaseSearch()
+    {
+        var f = new Fixture { DuplicateRelease = true };
+        await f.Service.Approve("Portal", 14, 7, 9, 5, 21, User, default);
+        Assert.Single(f.Write.Requests.Where(r => r.Method == HttpMethod.Patch));
+    }
+
+    [Fact]
+    public async Task PendingReleaseWithoutArtifactAllowsRejectionOnly()
+    {
+        var f = new Fixture { NoArtifact = true };
+        var data = System.Text.Json.JsonSerializer.SerializeToNode(await f.Service.PendingReleases("Portal", 7, 9, User, default))!;
+        var row = Assert.Single(data["releases"]!.AsArray())!;
+        Assert.False(row["CanApprove"]!.GetValue<bool>());
+        Assert.True(row["CanReject"]!.GetValue<bool>());
+    }
+
+    [Fact]
     public async Task QueuedEnvironmentWithoutLiveApprovalCannotBeApproved()
     {
         var f = new Fixture { ReleaseTransform = r => { r["environments"]![0]!["status"] = "queued"; r["environments"]![0]!["preDeployApprovals"] = new JsonArray(); return r; } };
@@ -891,13 +910,13 @@ public sealed class PipelineTests
         public FakeHealth Health { get; } = new();
         public PipelineService Service { get; }
         private const string Artifact = """{"type":"Build","alias":"_Portal","definitionReference":{"definition":{"id":"1"},"project":{"id":"project"},"version":{"id":"14"}}} """;
-        public Fixture(bool enabled = true, bool? queueEnabled = null)
+        public Fixture(bool enabled = true, bool? queueEnabled = null, Func<HttpClient, IPipelineUserTransport>? transport = null)
         {
             Read = new Handler(Respond); Write = new Handler(Respond);
             Users = new FakeUsers(new HttpClient(Write) { BaseAddress = new Uri("https://tfs.example/collection/") });
             var registry = new ConfigurationSiteRegistry(new Snapshot<SiteRegistryOptions>(new() { Applications = [new() { Key = "Portal", DisplayName = "Portal", TfsGitCiDefinitionId = 1, TfsGitProject = "project-name", TfsGitRepository = "repo" }] }));
             Service = new PipelineService(new HttpClient(Read) { BaseAddress = new Uri("https://tfs.example/collection/") }, registry,
-                Microsoft.Extensions.Options.Options.Create(new TfsCdOptions { Enabled = true, ExecutionEnabled = enabled }), Users, NullLogger<PipelineService>.Instance, Health,
+                Microsoft.Extensions.Options.Options.Create(new TfsCdOptions { Enabled = true, ExecutionEnabled = enabled }), transport?.Invoke(new HttpClient(Write) { BaseAddress = new Uri("https://tfs.example/collection/") }) ?? Users, NullLogger<PipelineService>.Instance, Health,
                 Microsoft.Extensions.Options.Options.Create(new PipelineCiOptions { QueueEnabled = queueEnabled ?? enabled }));
         }
         public JsonNode ReleaseDefinition() => JsonNode.Parse("""{"id":7,"name":"Portal-CD","artifacts":[ARTIFACT],"environments":[{"id":9,"name":"SOURCE-Portal","preDeployApprovals":{"approvalOptions":{"releaseCreatorCanBeApprover":false}}}]}""".Replace("ARTIFACT", Artifact))!;
@@ -908,6 +927,8 @@ public sealed class PipelineTests
         private HttpResponseMessage Respond(HttpRequestMessage request)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/_apis/connectionData")) return Json(System.Text.Json.JsonSerializer.Serialize(
+                new { authenticatedUser = new { id = UserId, providerDisplayName = "Saad Bilal", descriptor = "System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-10171" } }));
             if (request.Method == HttpMethod.Patch && path.EndsWith("/build/builds/14"))
             {
                 BuildStatus = CancelCompletesImmediately ? "completed" : "cancelling";
@@ -953,13 +974,66 @@ public sealed class PipelineTests
                 wrong["artifacts"]![0]!["definitionReference"]!["version"]!["id"] = "999";
                 return Json(wrong.ToJsonString());
             }
-            if (path.EndsWith("/release/releases/5")) return Json(Release().ToJsonString());
+            if (path.EndsWith("/release/releases/5") || path.EndsWith("/release/releases/99")) return Json(Release().ToJsonString());
             if (path.EndsWith("/release/approvals")) return Json(LiveApprovals?.ToJsonString() ?? """{"value":[]}""");
             if (path.EndsWith("/release/approvals/21")) return Json($"{{\"id\":21,\"status\":\"{ConfirmedApprovalStatus}\"}}");
             if (path.EndsWith("/build/builds")) return Json("""{"value":[]}""");
             throw new InvalidOperationException("Unexpected test request: " + path);
         }
     }
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    public async Task SingleAccountDecisionsKeepTfsPoliciesAndExecutionGate(bool reject, bool creator, bool gate)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var user = new System.Security.Principal.WindowsPrincipal(identity);
+        var sid = identity.User!.Value;
+        using var sessions = new PipelinePersonalSessions();
+        var connection = Microsoft.Extensions.Options.Options.Create(new TfsGitConnectionOptions { BaseUrl = "https://tfs.example/collection/" });
+        var settings = Microsoft.Extensions.Options.Options.Create(new PipelineWorkgroupOptions {
+            ServiceCdEnabled = true, ServiceCdIdentitySid = "S-1-5-21-2360516362-3028474152-1589833627-10171", ServiceIdentityId = UserId, ServiceCdUsers = [sid] });
+        var f = new Fixture(enabled: gate, transport: http => new PipelineWorkgroupTransport(
+            new PipelineUserTransport(connection, new TestProductionEnvironment()), new SingleClientFactory(http), settings,
+            connection, sessions, new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user } },
+            NullLogger<PipelineWorkgroupTransport>.Instance, new PipelinePersonalClientFactory()))
+            { DuplicateRelease = true, CreatorIsUser = creator, ConfirmedApprovalStatus = reject ? "rejected" : "approved" };
+        Task Decide() => reject ? f.Service.Reject("Portal", 14, 7, 9, 5, 21, user, default)
+            : f.Service.Approve("Portal", 14, 7, 9, 5, 21, user, default);
+        if (creator || !gate)
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(Decide);
+            Assert.DoesNotContain(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+        }
+        else
+        {
+            await Decide();
+            var patch = Assert.Single(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+            var body = JsonNode.Parse(patch.Body!)!;
+            Assert.Equal(reject ? "rejected" : "approved", body["status"]!.ToString());
+            Assert.Equal(1, body["revision"]!.GetValue<int>());
+            Assert.Contains(sid, body["comments"]!.ToString());
+            Assert.Contains(UserId, body["comments"]!.ToString());
+        }
+    }
+
+    private sealed class SingleClientFactory(HttpClient client) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) { Assert.Equal("PipelineServiceCd", name); return client; }
+    }
+    private sealed class TestProductionEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Production";
+        public string ApplicationName { get; set; } = "Test";
+        public string ContentRootPath { get; set; } = "";
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
     private sealed class FakeHealth : IPipelineHealthCheck
     {
         public PipelineHealthResult Result = new(null, "pending", "Health endpoint not configured");

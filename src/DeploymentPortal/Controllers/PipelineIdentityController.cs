@@ -16,7 +16,7 @@ public sealed class PipelineIdentityController(IOptions<PipelineWorkgroupOptions
         var sid = PipelinePersonalSessions.Sid(User);
         if (sid is null) return Unauthorized(new { error = "A real Windows Portal login is required." });
         var session = sessions.Find(Request.Cookies[PipelineWorkgroupTransport.Cookie], sid);
-        var enabled = settings.Value.PerUserAuthenticationEnabled && settings.Value.PerUserTfsIdentities.TryGetValue(sid, out var expected)
+        var enabled = !settings.Value.ServiceCdEnabled && settings.Value.PerUserAuthenticationEnabled && settings.Value.PerUserTfsIdentities.TryGetValue(sid, out var expected)
             && PipelineWorkgroupTransport.PersonalIdentityAllowed(settings.Value, sid, expected);
         var collection = "";
         try { collection = PipelineWorkgroupTransport.PersonalCollection(settings.Value, connection.Value); } catch (InvalidOperationException) { }
@@ -32,6 +32,8 @@ public sealed class PipelineIdentityController(IOptions<PipelineWorkgroupOptions
     public async Task<IActionResult> Connect([FromForm] string personalAccessToken, CancellationToken cancellationToken)
     {
         var sid = PipelinePersonalSessions.Sid(User);
+        if (settings.Value.ServiceCdEnabled)
+            return StatusCode(403, new { error = "Single-account CD mode is selected. Personal TFS login is available separately when that mode is disabled." });
         if (sid is null || !settings.Value.PerUserAuthenticationEnabled
             || !settings.Value.PerUserTfsIdentities.TryGetValue(sid, out var expected) || !Guid.TryParse(expected, out _))
             return StatusCode(403, new { error = "This Portal user is not mapped to an authorized personal TFS identity." });

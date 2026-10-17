@@ -13,6 +13,9 @@ public sealed class PipelineWorkgroupOptions
     public bool ServiceCiEnabled { get; set; }
     public string[] ServiceCiUsers { get; set; } = []; // Portal Windows SIDs; default deny.
     public string? ServiceIdentityId { get; set; } // Actual TFS identity GUID, never a browser identity.
+    public bool ServiceCdEnabled { get; set; } // Explicit authorization, independent of CI; default off.
+    public string[] ServiceCdUsers { get; set; } = []; // Real Portal Windows SIDs; default deny.
+    public string? ServiceCdIdentitySid { get; set; } // Independently pinned TFS actor SID, not a Portal SID.
     public bool PerUserAuthenticationEnabled { get; set; }
     public string? PersonalCollectionUrl { get; set; } // Optional HTTPS binding for the same configured host/collection.
     public Dictionary<string, string> PerUserTfsIdentities { get; set; } = []; // Portal SID -> personal TFS GUID.
@@ -74,7 +77,28 @@ public sealed class PipelineWorkgroupTransport(PipelineUserTransport windows, IH
         && string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase)
         && !string.Equals(actual, options.ServiceIdentityId, StringComparison.OrdinalIgnoreCase);
 
-    public bool Available(ClaimsPrincipal user) => Session(user) is not null || windows.Available(user);
+    public const string SingleAccountActor = @"fff\saad.bilal";
+    public static bool ServiceCdAllowed(PipelineWorkgroupOptions options, ClaimsPrincipal user) => options.ServiceCdEnabled
+        && Guid.TryParse(options.ServiceIdentityId, out _) && ValidWindowsSid(options.ServiceCdIdentitySid)
+        && PipelinePersonalSessions.Sid(user) is { } sid
+        && options.ServiceCdUsers.Contains(sid, StringComparer.OrdinalIgnoreCase);
+
+    private static bool ValidWindowsSid(string? sid) => sid is not null
+        && System.Text.RegularExpressions.Regex.IsMatch(sid, @"\AS-1-5-21-[0-9]{1,10}-[0-9]{1,10}-[0-9]{1,10}-[0-9]{1,10}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+        && sid.Split('-').Skip(4).All(part => uint.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _));
+
+    public static bool SingleAccountIdentityMatches(System.Text.Json.Nodes.JsonNode? actor, PipelineWorkgroupOptions options) =>
+        actor is System.Text.Json.Nodes.JsonObject
+        && Guid.TryParse(options.ServiceIdentityId, out var expected) && expected != Guid.Empty
+        && actor["id"] is System.Text.Json.Nodes.JsonValue id && id.TryGetValue<string>(out var idText)
+        && Guid.TryParse(idText, out var actual) && actual == expected
+        && ValidWindowsSid(options.ServiceCdIdentitySid)
+        && actor["descriptor"] is System.Text.Json.Nodes.JsonValue descriptor && descriptor.TryGetValue<string>(out var descriptorText)
+        && string.Equals(descriptorText, "System.Security.Principal.WindowsIdentity;" + options.ServiceCdIdentitySid, StringComparison.Ordinal);
+
+    // Explicit single-account mode denies unauthorized callers without personal/delegation fallback.
+    public bool Available(ClaimsPrincipal user) => settings.Value.ServiceCdEnabled
+        ? ServiceCdAllowed(settings.Value, user) : Session(user) is not null || windows.Available(user);
     public bool AvailableForBuild(ClaimsPrincipal user) => settings.Value.ServiceCiEnabled
         ? ServiceCiAllowed(settings.Value, user) : windows.AvailableForBuild(user);
 
@@ -94,6 +118,22 @@ public sealed class PipelineWorkgroupTransport(PipelineUserTransport windows, IH
 
     public async Task<T> RunAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action)
     {
+        if (settings.Value.ServiceCdEnabled)
+        {
+            if (!ServiceCdAllowed(settings.Value, user))
+                throw new UnauthorizedAccessException("Single-account CD requires an explicitly authorized Portal Windows SID.");
+            using var service = clients.CreateClient("PipelineServiceCd");
+            var cdData = await PipelineUserTransport.ReadIdentity(service, true);
+            var actor = cdData["authenticatedUser"];
+            var id = Text(actor, "id");
+            // connectionData authenticatedUser is the remote authenticated actor. Display names,
+            // Account properties, authorizedUser and browser claims cannot establish its identity.
+            if (!SingleAccountIdentityMatches(actor, settings.Value))
+                throw new UnauthorizedAccessException("Protected credential did not authenticate as the authorized single-account TFS actor.");
+            logger.LogInformation("Pipeline single-account CD action: PortalSid={PortalSid}, TfsActor={TfsActor}, TfsAccount={TfsAccount}, Reference={Reference}. This is not delegated personal identity.",
+                PipelinePersonalSessions.Sid(user), id, SingleAccountActor, accessor.HttpContext?.TraceIdentifier);
+            return await action(service, id!);
+        }
         var session = Session(user);
         if (session is null) return await windows.RunAsync(user, action); // Never fall back to CI service credentials.
         using var http = personalClients.Create(session.Collection, session.Token);
@@ -129,13 +169,13 @@ public sealed class PipelineWorkgroupTransport(PipelineUserTransport windows, IH
     }
 }
 
-public sealed class PipelineActionGuard(Uri collection, bool personal, string? authorization = null) : DelegatingHandler
+public sealed class PipelineActionGuard(Uri collection, bool personal, string? authorization = null, bool serviceCd = false) : DelegatingHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var uri = request.RequestUri;
         var path = uri is null ? "" : uri.AbsolutePath;
-        var allowedWrite = personal
+        var allowedWrite = personal || serviceCd
             ? request.Method == HttpMethod.Patch && System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/release/approvals/[1-9]\d*$")
             : (request.Method == HttpMethod.Post && path.EndsWith("/_apis/build/builds", StringComparison.Ordinal))
                 || (request.Method == HttpMethod.Patch && System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/build/builds/[1-9]\d*$"));

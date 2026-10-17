@@ -124,7 +124,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         : "CI is enabled; TFS validates the signed-in user's Queue builds permission. Deployment approval remains separately protected.";
     private string ExecutionReason(ClaimsPrincipal user) => !gates.Value.Enabled || !gates.Value.ExecutionEnabled
         ? "TfsCd execution is disabled by effective server configuration."
-        : !users.Available(user) ? "CD requires a verified personal TFS session on workgroup SOURCE, or delegation/local same-user login. Connect your own TFS identity; service CI credentials cannot approve." : "TFS checks the signed-in user's permissions.";
+        : !users.Available(user) ? "CD identity is unavailable or this Portal Windows SID is not authorized for the configured CD mode. Use configured single-account authorization, personal TFS authentication or verified Windows delegation." : "TFS checks the verified TFS actor's approval permissions.";
     private void RequireExecution(ClaimsPrincipal user)
     {
         if (!CanExecute(user)) throw new UnauthorizedAccessException(ExecutionReason(user));
@@ -464,6 +464,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
     private async Task DecideApproval(string key, int buildId, int releaseDefinitionId, int environmentId, int expectedReleaseId, int approvalId, ClaimsPrincipal user, CancellationToken ct, string decision)
     {
         RequireExecution(user);
+        if (expectedReleaseId <= 0 || approvalId <= 0) throw new ArgumentException("Select an explicit release and approval.");
         var stage = "definition/build validation";
         var submitted = false;
         try
@@ -472,7 +473,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         var build = await Build(app, buildId, definition, ct);
         if (decision == "approved" && (Text(build, "status") != "completed" || Text(build, "result") != "succeeded")) throw new ArgumentException("CI must succeed before approval.");
         stage = "release/build/environment correlation";
-        var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct, decision == "rejected" ? expectedReleaseId : null);
+        var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct, expectedReleaseId);
         if (release is null || environment is null || Number(release, "id") != expectedReleaseId) throw new ArgumentException("Release changed; refresh before approval.");
         if (decision == "approved")
         {
@@ -491,9 +492,10 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             var denial = ApprovalDenial(rd, release, environment, approval, identity, eligible.Contains(approvalId));
             if (denial is not null) throw new UnauthorizedAccessException("CD approval blocked: " + denial);
             // TFS enforces group membership, rank, revision and its remaining approval policies.
-            logger.LogInformation("Pipeline approval decision {Decision} for {ApprovalId} requested by {User} for release {Release}, environment {Environment}.", decision, approvalId, user.Identity?.Name, expectedReleaseId, Number(environment, "id"));
+            logger.LogInformation("Pipeline approval decision {Decision} for {ApprovalId} requested by {User} for release {Release}, environment {Environment}; PortalSid={PortalSid}, TfsActor={TfsActor}.",
+                decision, approvalId, user.Identity?.Name, expectedReleaseId, Number(environment, "id"), PipelinePersonalSessions.Sid(user), identity);
             // Buffer JSON: classic TFS/IIS must receive a known Content-Length, not chunked JSON.
-            var payload = JsonSerializer.SerializeToUtf8Bytes(new { status = decision, revision = Number(approval, "revision"), comments = $"Decision: {decision} by the signed-in user through Deployment Portal." });
+            var payload = JsonSerializer.SerializeToUtf8Bytes(new { status = decision, revision = Number(approval, "revision"), comments = $"Decision: {decision} through Deployment Portal; TFS actor {identity}; Portal Windows SID {PipelinePersonalSessions.Sid(user) ?? "unavailable"}." });
             using var content = new ByteArrayContent(payload);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
             using var request = new HttpRequestMessage(HttpMethod.Patch, Path(app, $"release/approvals/{approvalId}", "4.1-preview.2")) { Content = content };
@@ -524,7 +526,8 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             { throw new PipelineApprovalException("decision confirmation read", (int?)(ex as HttpRequestException)?.StatusCode, null, null, true); }
             if (Number(confirmed, "id") != approvalId || Text(confirmed, "status") != decision)
                 throw new PipelineApprovalException("decision confirmation mismatch", (int)response.StatusCode, null, null, true);
-            logger.LogInformation("Pipeline approval {ApprovalId} confirmed for {User}.", approvalId, user.Identity?.Name);
+            logger.LogInformation("Pipeline CD decision confirmed: Decision={Decision}, Application={Application}, BuildId={BuildId}, ReleaseId={ReleaseId}, EnvironmentId={EnvironmentId}, ApprovalId={ApprovalId}, PortalUser={PortalUser}, TfsActor={TfsActor}, PortalSid={PortalSid}.",
+                decision, app.Key, buildId, expectedReleaseId, Number(environment, "id"), approvalId, user.Identity?.Name, identity, PipelinePersonalSessions.Sid(user));
             return true;
         });
         }

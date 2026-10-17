@@ -15,8 +15,66 @@ namespace DeploymentPortal.Tests;
 public sealed class PipelineWorkgroupTests
 {
     private const string Actor = "11111111-1111-1111-1111-111111111111";
+    private const string ActorSid = "S-1-5-21-2360516362-3028474152-1589833627-10171";
     private const string Other = "22222222-2222-2222-2222-222222222222";
     private const string Url = "https://netserver/tfs/DefaultCollection/";
+
+    private static System.Text.Json.Nodes.JsonNode RealConnectionData() => System.Text.Json.Nodes.JsonNode.Parse("""
+        {"authenticatedUser":{"id":"332a7e40-5225-4a57-bfd1-a282d6585357","providerDisplayName":"Saad Bilal",
+        "properties":{"Account":{"$value":"saad.bilal"}},
+        "descriptor":"System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-10171"}}
+        """)!;
+
+    [Fact]
+    public void ActualTfs2018IdentityShapeMatchesPinnedGuidAndWindowsSid()
+    {
+        var options = new PipelineWorkgroupOptions { ServiceIdentityId = "332a7e40-5225-4a57-bfd1-a282d6585357", ServiceCdIdentitySid = ActorSid };
+        var data = RealConnectionData();
+        Assert.True(PipelineWorkgroupTransport.SingleAccountIdentityMatches(data["authenticatedUser"], options));
+        data["authenticatedUser"]!["providerDisplayName"] = "Renamed display label";
+        data["authenticatedUser"]!["properties"] = null;
+        Assert.True(PipelineWorkgroupTransport.SingleAccountIdentityMatches(data["authenticatedUser"], options));
+    }
+
+    [Theory]
+    [InlineData("id", "22222222-2222-2222-2222-222222222222")]
+    [InlineData("id", null)]
+    [InlineData("descriptor", null)]
+    [InlineData("descriptor", "System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-99999")]
+    [InlineData("descriptor", "Microsoft.TeamFoundation.Identity;S-1-5-21-2360516362-3028474152-1589833627-10171")]
+    [InlineData("descriptor", "forged;System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-10171")]
+    [InlineData("descriptor", "System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-10171;extra")]
+    public void DisplayAndAccountCannotForgeMismatchedStableIdentity(string field, string? value)
+    {
+        var options = new PipelineWorkgroupOptions { ServiceIdentityId = "332a7e40-5225-4a57-bfd1-a282d6585357", ServiceCdIdentitySid = ActorSid };
+        var data = RealConnectionData();
+        data["authorizedUser"] = data["authenticatedUser"]!.DeepClone();
+        data["authenticatedUser"]!["providerDisplayName"] = @"fff\saad.bilal";
+        data["authenticatedUser"]![field] = value;
+        Assert.False(PipelineWorkgroupTransport.SingleAccountIdentityMatches(data["authenticatedUser"], options));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("S-1-5-21-invalid")]
+    [InlineData("S-1-5-21-9999999999-1-1-1")]
+    public void MissingOrInvalidPinnedSidCannotAuthorizeCd(string? sid)
+    {
+        var options = new PipelineWorkgroupOptions { ServiceCdEnabled = true, ServiceIdentityId = "332a7e40-5225-4a57-bfd1-a282d6585357", ServiceCdIdentitySid = sid };
+        Assert.False(PipelineWorkgroupTransport.SingleAccountIdentityMatches(RealConnectionData()["authenticatedUser"], options));
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"fff\\\\saad.bilal\"")]
+    [InlineData("{\"id\":\"332a7e40-5225-4a57-bfd1-a282d6585357\",\"descriptor\":{\"$value\":\"forged\"}}")]
+    public void MalformedAuthenticatedIdentityCannotAuthorize(string json)
+    {
+        var options = new PipelineWorkgroupOptions { ServiceIdentityId = "332a7e40-5225-4a57-bfd1-a282d6585357", ServiceCdIdentitySid = ActorSid };
+        Assert.False(PipelineWorkgroupTransport.SingleAccountIdentityMatches(System.Text.Json.Nodes.JsonNode.Parse(json), options));
+    }
 
     [Fact]
     public void ServiceCiRequiresExplicitRealPortalSidAndExpectedTfsIdentity()
@@ -202,24 +260,146 @@ public sealed class PipelineWorkgroupTests
         }
     }
 
-    private static PipelineWorkgroupTransport Transport(PipelineWorkgroupOptions options, PipelinePersonalSessions sessions, HttpContext context, string actual)
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void SingleAccountCdRequiresSeparateOptInAllowlistAndIdentity(bool enabled, bool listed, bool validId)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        var options = new PipelineWorkgroupOptions { ServiceCiEnabled = true, ServiceCdEnabled = enabled, ServiceCdIdentitySid = ActorSid,
+            ServiceIdentityId = validId ? Actor : "invalid", ServiceCiUsers = [identity.User!.Value],
+            ServiceCdUsers = listed ? [identity.User!.Value] : [] };
+        Assert.False(PipelineWorkgroupTransport.ServiceCdAllowed(options, new WindowsPrincipal(identity)));
+        Assert.False(PipelineWorkgroupTransport.ServiceCdAllowed(options, new ClaimsPrincipal()));
+        Assert.False(PipelineWorkgroupTransport.ServiceCdAllowed(options, new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.PrimarySid, identity.User!.Value)], "forged"))));
+    }
+
+    [Theory]
+    [InlineData("11111111-1111-1111-1111-111111111111", @"fff\saad.bilal", true)]
+    [InlineData("22222222-2222-2222-2222-222222222222", @"fff\saad.bilal", false)]
+    [InlineData("11111111-1111-1111-1111-111111111111", @"fff\someone.else", true)]
+    [InlineData("11111111-1111-1111-1111-111111111111", "", true)]
+    public async Task SingleAccountCdUsesPinnedIdentityAndIgnoresDisplayNameBeforeAnyDecision(string actual, string account, bool allowed)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = new WindowsPrincipal(identity);
+        using var sessions = new PipelinePersonalSessions();
+        var options = new PipelineWorkgroupOptions { ServiceCdEnabled = true, ServiceCdIdentitySid = ActorSid, ServiceIdentityId = Actor,
+            ServiceCdUsers = [identity.User!.Value] };
+        var factory = new Factory(actual, account);
+        var transport = Transport(options, sessions, new DefaultHttpContext { User = user }, actual, factory);
+        Assert.True(transport.Available(user));
+        var invoked = false;
+        async Task<string> Decide(HttpClient http, string id)
+        {
+            invoked = true;
+            using var response = await http.PatchAsync("project/_apis/release/approvals/21", new StringContent("synthetic decision"));
+            return id;
+        }
+        if (allowed) Assert.Equal(Actor, await transport.RunAsync(user, Decide));
+        else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => transport.RunAsync(user, Decide));
+        Assert.Equal(allowed, invoked);
+        Assert.Equal("PipelineServiceCd", factory.LastClient);
+    }
+
+    [Fact]
+    public async Task SingleAccountCdUnauthorizedSidCannotCreateClientOrFallBack()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = new WindowsPrincipal(identity);
+        using var sessions = new PipelinePersonalSessions();
+        var factory = new Factory(Actor);
+        var options = new PipelineWorkgroupOptions { ServiceCdEnabled = true, ServiceCdIdentitySid = ActorSid, ServiceIdentityId = Actor,
+            ServiceCiEnabled = true, ServiceCiUsers = [identity.User!.Value], ServiceCdUsers = ["S-1-5-21-999"] };
+        var transport = Transport(options, sessions, new DefaultHttpContext { User = user }, Actor, factory);
+        foreach (var caller in new[] { user, new ClaimsPrincipal() })
+        {
+            Assert.False(transport.Available(caller));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => transport.RunAsync(caller, (http, id) => Task.FromResult(id)));
+        }
+        Assert.Equal(0, factory.Calls);
+    }
+
+    [Theory]
+    [InlineData("System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-10171", true)]
+    [InlineData("System.Security.Principal.WindowsIdentity;S-1-5-21-2360516362-3028474152-1589833627-99999", false)]
+    [InlineData(null, false)]
+    public async Task Tfs2018DescriptorIsCheckedBeforeDecisionCallback(string? descriptor, bool allowed)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = new WindowsPrincipal(identity);
+        const string actual = "332a7e40-5225-4a57-bfd1-a282d6585357";
+        using var sessions = new PipelinePersonalSessions();
+        var options = new PipelineWorkgroupOptions { ServiceCdEnabled = true, ServiceIdentityId = actual,
+            ServiceCdIdentitySid = ActorSid, ServiceCdUsers = [identity.User!.Value] };
+        var factory = new Factory(actual, "Saad Bilal", descriptor);
+        var transport = Transport(options, sessions, new DefaultHttpContext { User = user }, actual, factory);
+        var invoked = false;
+        Task<string> Decide(HttpClient http, string id) { invoked = true; return Task.FromResult(id); }
+        if (allowed) Assert.Equal(actual, await transport.RunAsync(user, Decide));
+        else await Assert.ThrowsAsync<UnauthorizedAccessException>(() => transport.RunAsync(user, Decide));
+        Assert.Equal(allowed, invoked);
+    }
+
+    [Fact]
+    public async Task SingleAccountModeDoesNotSolicitOrVerifyPersonalTokens()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        using var sessions = new PipelinePersonalSessions();
+        var factory = new Factory(Actor);
+        var context = new DefaultHttpContext { User = new WindowsPrincipal(identity) };
+        context.Request.Scheme = "https";
+        var controller = new PipelineIdentityController(Options.Create(new PipelineWorkgroupOptions {
+            ServiceCdEnabled = true, ServiceCdIdentitySid = ActorSid, PerUserAuthenticationEnabled = true, PerUserTfsIdentities = { [identity.User!.Value] = Actor }
+        }), Options.Create(new TfsGitConnectionOptions { BaseUrl = Url }), sessions, NullLogger<PipelineIdentityController>.Instance, factory)
+        { ControllerContext = new() { HttpContext = context } };
+        var status = System.Text.Json.JsonSerializer.SerializeToNode(Assert.IsType<JsonResult>(controller.Status()).Value)!;
+        Assert.False(status["enabled"]!.GetValue<bool>());
+        Assert.Equal(403, Assert.IsType<ObjectResult>(await controller.Connect("synthetic-token", default)).StatusCode);
+        Assert.Equal(0, factory.Calls);
+    }
+
+    [Theory]
+    [InlineData("PATCH", "project/_apis/release/approvals/21", true)]
+    [InlineData("POST", "project/_apis/release/releases", false)]
+    [InlineData("POST", "project/_apis/build/builds", false)]
+    [InlineData("PATCH", "project/_apis/build/builds/28", false)]
+    [InlineData("PATCH", "https://attacker/project/_apis/release/approvals/21", false)]
+    public async Task SingleAccountGuardPermitsOnlyCollectionApprovalWrites(string method, string path, bool allowed)
+    {
+        using var http = new HttpClient(new PipelineActionGuard(new(Url), false, serviceCd: true)
+            { InnerHandler = new Reply(Actor) }) { BaseAddress = new(Url) };
+        if (allowed) { using var response = await http.SendAsync(new(new HttpMethod(method), path)); Assert.True(response.IsSuccessStatusCode); }
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => http.SendAsync(new(new HttpMethod(method), path)));
+    }
+
+    private static PipelineWorkgroupTransport Transport(PipelineWorkgroupOptions options, PipelinePersonalSessions sessions, HttpContext context, string actual, Factory? suppliedFactory = null)
     {
         var connection = Options.Create(new TfsGitConnectionOptions { BaseUrl = Url });
         var windows = new PipelineUserTransport(connection, new Env());
-        var factory = new Factory(actual);
+        var factory = suppliedFactory ?? new Factory(actual);
         return new(windows, factory, Options.Create(options), connection, sessions,
             new HttpContextAccessor { HttpContext = context }, NullLogger<PipelineWorkgroupTransport>.Instance, factory);
     }
-    private sealed class Factory(string id) : IHttpClientFactory, IPipelinePersonalClientFactory
+    private sealed class Factory(string id, string account = @"fff\saad.bilal", string? descriptor = "System.Security.Principal.WindowsIdentity;" + ActorSid) : IHttpClientFactory, IPipelinePersonalClientFactory
     {
         public int Calls;
-        public HttpClient CreateClient(string name) { Calls++; return new(new Reply(id)) { BaseAddress = new(Url) }; }
+        public string? LastClient;
+        public HttpClient CreateClient(string name) { Calls++; LastClient = name; return new(new Reply(id, account, descriptor)) { BaseAddress = new(Url) }; }
         public HttpClient Create(string collection, string token) => CreateClient("personal");
     }
-    private sealed class Reply(string id) : HttpMessageHandler
+    private sealed class Reply(string id, string account = @"fff\saad.bilal", string? descriptor = "System.Security.Principal.WindowsIdentity;" + ActorSid) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($"{{\"authenticatedUser\":{{\"id\":\"{id}\"}}}}") });
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(
+                new { authenticatedUser = new { id, providerDisplayName = account, descriptor } })) });
     }
     private sealed class Env : IHostEnvironment
     {

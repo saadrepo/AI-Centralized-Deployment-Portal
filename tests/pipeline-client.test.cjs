@@ -203,3 +203,22 @@ test('personal login remains disabled when trusted HTTPS is unavailable', async 
     f.get('personal-form').fire('submit'); await tick();
     assert.equal(f.requests.filter(r => r.action === 'Connect').length, 0);
 });
+
+test('per-release approval confirms and submits the row even when another build is selected', async () => {
+    const f = fixture({ PendingReleases: () => ({ releases: [{ ...pendingRow, buildId: 28, canApprove: true }] }), Approve: () => ({ message: 'Confirmed approval' }) });
+    await tick();
+    f.get('pending-releases').querySelectorAll('button').find(b => b.textContent === 'Approve & Deploy').fire('click'); await tick();
+    assert.match(f.confirmation.prompts[0], /Release ID 7, Build ID 28/);
+    const post = f.requests.find(r => r.action === 'Approve');
+    assert.equal(post.args.get('buildId'), '28');
+    assert.equal(post.args.get('releaseId'), '7');
+    assert.equal(post.args.get('approvalId'), '31');
+});
+
+test('declining main approval confirmation never sends a mutation', async () => {
+    const f = fixture({ Status: () => state(14, { canApprove: true }) });
+    await tick(); f.confirmation.accepted = false;
+    f.get('approve').fire('click'); await tick();
+    assert.match(f.confirmation.prompts[0], /Release ID 5, Build ID 14/);
+    assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+});

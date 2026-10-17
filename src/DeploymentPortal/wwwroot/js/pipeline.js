@@ -236,26 +236,29 @@
                 const item = text('div', '', 'pipeline-branch');
                 item.append(text('span', `${row.name} (ID ${row.releaseId}) | Build ID ${row.buildId} | Approval: ${row.approvalStatus} | Environment: ${row.environmentStatus}${row.operationStatus ? ` | Operation: ${row.operationStatus}` : ''}${row.deploymentQueueId ? ` | Queue ID: ${row.deploymentQueueId}` : ''}`));
                 if (row.approvalStatus === 'pending') {
-                    const reject = text('button', 'Reject', 'btn btn-outline-danger');
-                    reject.disabled = !row.canReject;
-                    reject.title = row.rejectReason || data.executionReason || 'Waiting for TFS eligibility.';
-                    reject.addEventListener('click', async () => {
-                        if (mutation || busy || turn !== generation || scope !== JSON.stringify(selection())) return;
-                        if (!window.confirm(`Reject approval ${row.approvalId} for ${row.name} (Release ID ${row.releaseId}, Build ID ${row.buildId})? This prevents this approval from deploying.`)) return;
-                        decisionNotice = null; message('Submitting rejection to TFS...');
-                        mutation = true; clearTimeout(timer); generation++; abort.abort(); abort = new AbortController();
-                        panel.querySelectorAll('button').forEach(button => { button.disabled = true; }); buttons();
-                        try {
-                            const result = await request('Reject', { ...args, buildId: row.buildId, releaseId: row.releaseId, approvalId: row.approvalId }, true);
-                            decisionNotice = { text: result.message, error: false }; message(result.message);
-                        } catch (error) { decisionNotice = { text: error.message, error: true }; message(error.message, true); }
-                        finally {
-                            mutation = false;
-                            app.disabled = false; build.disabled = !build.value; branch.disabled = !options?.branches.length; environment.disabled = !environment.value;
-                            buttons(); await Promise.allSettled([pendingReleases(), refresh(true)]);
-                        }
-                    });
-                    item.append(reject);
+                    for (const action of ['Reject', 'Approve']) {
+                        const approving = action === 'Approve';
+                        const decisionButton = text('button', approving ? 'Approve & Deploy' : 'Reject', approving ? 'btn btn-primary' : 'btn btn-outline-danger');
+                        decisionButton.disabled = approving ? !row.canApprove : !row.canReject;
+                        decisionButton.title = (approving ? row.approveReason : row.rejectReason) || data.executionReason || 'Waiting for TFS eligibility.';
+                        decisionButton.addEventListener('click', async () => {
+                            if (decisionButton.disabled || mutation || busy || turn !== generation || scope !== JSON.stringify(selection())) return;
+                            if (!window.confirm(`${approving ? 'Approve & Deploy' : 'Reject'} approval ${row.approvalId} for ${row.name} (Release ID ${row.releaseId}, Build ID ${row.buildId}, Environment ID ${args.environmentId})? ${approving ? 'Deployment follows the configured TFS process.' : 'This prevents this approval from deploying.'}`)) return;
+                            decisionNotice = null; message(approving ? 'Submitting approval to TFS...' : 'Submitting rejection to TFS...');
+                            mutation = true; clearTimeout(timer); generation++; abort.abort(); abort = new AbortController();
+                            panel.querySelectorAll('button').forEach(button => { button.disabled = true; }); buttons();
+                            try {
+                                const result = await request(action, { ...args, buildId: row.buildId, releaseId: row.releaseId, approvalId: row.approvalId }, true);
+                                decisionNotice = { text: result.message, error: false }; message(result.message);
+                            } catch (error) { decisionNotice = { text: error.message, error: true }; message(error.message, true); }
+                            finally {
+                                mutation = false;
+                                app.disabled = false; build.disabled = !build.value; branch.disabled = !options?.branches.length; environment.disabled = !environment.value;
+                                buttons(); await Promise.allSettled([pendingReleases(), refresh(true)]);
+                            }
+                        });
+                        item.append(decisionButton);
+                    }
                 }
                 panel.append(item);
             });
@@ -269,6 +272,10 @@
         if (action === 'Cancel') {
             if (!snapshot?.canCancel || snapshot.buildId !== Number(build.value)) return;
             if (!window.confirm(`Cancel CI build #${snapshot.buildNumber} (ID ${snapshot.buildId})? This stops only this CI build.`)) return;
+        }
+        if (action === 'Approve') {
+            if (!snapshot?.canApprove || snapshot.buildId !== Number(build.value)) return;
+            if (!window.confirm(`Approve & Deploy approval ${snapshot.approvalId} for Release ID ${snapshot.releaseId}, Build ID ${snapshot.buildId}, Environment ID ${environment.value}? Deployment follows the configured TFS process.`)) return;
         }
         decisionNotice = null;
         mutation = true; activeAction = action;

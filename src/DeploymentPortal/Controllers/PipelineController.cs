@@ -57,6 +57,15 @@ public sealed class PipelineController(PipelineService pipeline, ILogger<Pipelin
             return (object)new { message = "TFS confirmed rejection. This approval cannot start deployment." };
         }, true);
 
+    [HttpPost, ValidateAntiForgeryToken]
+    public Task<IActionResult> CancelDeployment(string applicationKey, int buildId, int releaseDefinitionId, int environmentId, int releaseId,
+        int releaseEnvironmentId, int deploymentAttemptId, int deploymentAttempt, CancellationToken cancellationToken) =>
+        Execute(async () => {
+            await pipeline.CancelDeployment(applicationKey, buildId, releaseDefinitionId, environmentId, releaseId,
+                releaseEnvironmentId, deploymentAttemptId, deploymentAttempt, User, cancellationToken);
+            return (object)new { message = "TFS confirmed the deployment cancellation request. Refreshing the exact release attempt." };
+        }, true);
+
     private async Task<IActionResult> Execute(Func<Task<object>> action, bool mutation = false)
     {
         if (User.Identity?.IsAuthenticated != true) return StatusCode(401, new { error = "Sign in using your Windows account to access TFS." });
@@ -74,6 +83,13 @@ public sealed class PipelineController(PipelineService pipeline, ILogger<Pipelin
             logger.LogWarning("CI cancel failed: Code={Code}, MayHaveReachedTfs={MayHaveReachedTfs}, Reference={Reference}.", ex.Code, ex.MayHaveReachedTfs, HttpContext.TraceIdentifier);
             return StatusCode(ex.Code.Contains("DENIED") || ex.Code.Contains("IDENTITY_REQUIRED") ? 403 : 409,
                 new { error = ex.Message, code = ex.Code, mayHaveReachedTfs = ex.MayHaveReachedTfs, reference = HttpContext.TraceIdentifier });
+        }
+        catch (PipelineDeploymentCancellationException ex)
+        {
+            logger.LogWarning("CD deployment cancellation failed: HttpStatus={HttpStatus}, MayHaveReachedTfs={MayHaveReachedTfs}, PortalSid={PortalSid}, Reference={Reference}.",
+                ex.HttpStatus, ex.MayHaveReachedTfs, PipelinePersonalSessions.Sid(User), HttpContext.TraceIdentifier);
+            return StatusCode(ex.HttpStatus is 401 or 403 ? 403 : 409,
+                new { error = ex.Message, mayHaveReachedTfs = ex.MayHaveReachedTfs, reference = HttpContext.TraceIdentifier });
         }
         catch (PipelineQueueException ex)
         {

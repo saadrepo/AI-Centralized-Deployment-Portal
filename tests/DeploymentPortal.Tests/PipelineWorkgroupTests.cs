@@ -124,6 +124,7 @@ public sealed class PipelineWorkgroupTests
 
     [Theory]
     [InlineData(false, "PATCH", "project/_apis/release/approvals/21")]
+    [InlineData(false, "PATCH", "project/_apis/release/releases/20/environments/90")]
     [InlineData(true, "POST", "project/_apis/build/builds")]
     [InlineData(false, "POST", "project/_apis/release/releases")]
     [InlineData(true, "PATCH", "https://attacker/project/_apis/release/approvals/21")]
@@ -162,6 +163,28 @@ public sealed class PipelineWorkgroupTests
             Assert.False(transport.Available(user));
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => transport.RunAsync(user, (http, id) => Task.FromResult(id)));
         }
+    }
+
+    [Fact]
+    public void DeploymentCancellationRequiresItsSeparateDefaultOffGate()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = new WindowsPrincipal(identity);
+        var options = new PipelineWorkgroupOptions
+        {
+            ServiceCdEnabled = true,
+            ServiceIdentityId = Actor,
+            ServiceCdIdentitySid = ActorSid,
+            ServiceCdUsers = [identity.User!.Value]
+        };
+        using var sessions = new PipelinePersonalSessions();
+        var context = new DefaultHttpContext { User = user };
+        var transport = Transport(options, sessions, context, Actor);
+
+        Assert.False(transport.AvailableForDeploymentCancellation(user));
+        options.ServiceDeploymentCancellationEnabled = true;
+        Assert.True(transport.AvailableForDeploymentCancellation(user));
     }
 
     [Fact]
@@ -368,6 +391,7 @@ public sealed class PipelineWorkgroupTests
 
     [Theory]
     [InlineData("PATCH", "project/_apis/release/approvals/21", true)]
+    [InlineData("PATCH", "project/_apis/release/releases/20/environments/90", true)]
     [InlineData("POST", "project/_apis/release/releases", false)]
     [InlineData("POST", "project/_apis/build/builds", false)]
     [InlineData("PATCH", "project/_apis/build/builds/28", false)]

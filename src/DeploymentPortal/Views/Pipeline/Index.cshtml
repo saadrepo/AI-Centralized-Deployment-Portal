@@ -27,6 +27,7 @@
         <button id="pipeline-run" class="btn btn-primary" disabled aria-busy="false"><span id="pipeline-queue-spinner" class="spinner-border spinner-border-sm" hidden aria-hidden="true"></span><svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z" /></svg><span id="pipeline-run-label">Run CI Build</span></button>
         <button id="pipeline-cancel" class="btn btn-outline-danger" hidden disabled>Cancel Build</button>
         <button id="pipeline-approve" class="btn btn-outline-primary" disabled><partial name="_Icon" model='@("rocket")' /> Approve &amp; Deploy</button>
+        <button id="pipeline-cancel-deployment" class="btn btn-outline-danger" hidden disabled>Cancel Deployment</button>
         <button id="pipeline-refresh" class="btn btn-outline-primary"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 7V2m0 5h-5M20 7a9 9 0 1 0 1 9" /></svg> Refresh Status</button>
         <small id="pipeline-updated"></small>
     </div>

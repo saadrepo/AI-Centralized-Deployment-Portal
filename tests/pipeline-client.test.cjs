@@ -42,7 +42,7 @@ const state = (id = 14, overrides = {}) => ({
 });
 function fixture(overrides = {}) {
     const elements = new Map(), requests = [], timers = new Map(); let timerId = 0; const confirmation = { accepted: true, prompts: [] };
-    for (const name of ['personal-auth', 'personal-form', 'personal-token', 'personal-status', 'personal-connect', 'personal-disconnect', 'pending-releases', 'pipeline', 'application', 'definition', 'build', 'environment', 'branch', 'run', 'run-label', 'queue-spinner', 'cancel', 'approve', 'refresh', 'message', 'action-reason', 'activity', 'stages', 'context', 'status', 'timeline', 'logs', 'autoscroll', 'updated', 'branches']) {
+    for (const name of ['personal-auth', 'personal-form', 'personal-token', 'personal-status', 'personal-connect', 'personal-disconnect', 'pending-releases', 'pipeline', 'application', 'definition', 'build', 'environment', 'branch', 'run', 'run-label', 'queue-spinner', 'cancel', 'cancel-deployment', 'approve', 'refresh', 'message', 'action-reason', 'activity', 'stages', 'context', 'status', 'timeline', 'logs', 'autoscroll', 'updated', 'branches']) {
         const select = ['application', 'definition', 'build', 'environment', 'branch'].includes(name);
         elements.set(name === 'pipeline' ? name : `pipeline-${name}`, new Element(select ? 'select' : 'div'));
     }
@@ -70,7 +70,8 @@ function fixture(overrides = {}) {
             const args = options.method === 'POST' ? options.body : parsed.searchParams;
             requests.push({ action, args, method: options.method });
             const body = await handlers[action](args);
-            return { ok: true, json: async () => structuredClone(body) };
+            if (body?.__response) return { ok: false, status: body.status, headers: { get: () => null }, json: async () => ({ error: body.error }) };
+            return { ok: true, status: 200, headers: { get: () => null }, json: async () => structuredClone(body) };
         },
         setTimeout: callback => { timers.set(++timerId, callback); return timerId; }, clearTimeout: id => timers.delete(id),
         performance, console: { info: () => {} }, URL, URLSearchParams, AbortController
@@ -220,5 +221,70 @@ test('declining main approval confirmation never sends a mutation', async () => 
     await tick(); f.confirmation.accepted = false;
     f.get('approve').fire('click'); await tick();
     assert.match(f.confirmation.prompts[0], /Release ID 5, Build ID 14/);
+    assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+});
+
+test('cancel deployment confirms exact attempt and duplicate clicks send one POST', async () => {
+    const canceled = deferred();
+    const f = fixture({ Status: () => state(14, { releaseId: 20, environmentId: 90, canCancelDeployment: true,
+        deploymentAttemptId: 44, deploymentAttempt: 2, deploymentCancelReason: 'Eligible' }),
+        CancelDeployment: () => canceled.promise });
+    await tick();
+    const button = f.get('cancel-deployment');
+    assert.equal(button.hidden, false);
+    button.fire('click'); button.fire('click');
+    assert.match(f.confirmation.prompts[0], /Release ID 20, Build ID 14, Environment ID 90, Attempt 2/);
+    const posts = f.requests.filter(r => r.action === 'CancelDeployment');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].args.get('deploymentAttemptId'), '44');
+    assert.equal(posts[0].args.get('deploymentAttempt'), '2');
+    canceled.resolve({ message: 'Cancellation confirmed' }); await tick();
+});
+
+test('deployment cancellation stays hidden when default-off eligibility is absent', async () => {
+    const f = fixture(); await tick();
+    assert.equal(f.get('cancel-deployment').hidden, true);
+    f.get('cancel-deployment').fire('click'); await tick();
+    assert.equal(f.requests.filter(r => r.action === 'CancelDeployment').length, 0);
+});
+
+test('unconfirmed deployment cancellation cannot be repeated until manual refresh', async () => {
+    const f = fixture({ Status: () => state(14, { releaseId: 20, environmentId: 90, canCancelDeployment: true,
+        deploymentAttemptId: 44, deploymentAttempt: 2 }), CancelDeployment: () => { const error = new Error('Outcome unconfirmed'); throw error; } });
+    await tick(); const button = f.get('cancel-deployment');
+    button.fire('click'); await tick(); button.fire('click'); await tick();
+    assert.equal(f.requests.filter(r => r.action === 'CancelDeployment').length, 1);
+    assert.equal(button.disabled, true);
+    assert.match(f.get('action-reason').textContent, /unconfirmed/);
+});
+
+test('status polling reconnects after bounded transient restart without repeating writes or losing selection', async () => {
+    let calls = 0;
+    const f = fixture({ Status: () => { if (++calls <= 2) throw new TypeError('connection reset'); return state(14); } });
+    await tick();
+    await f.poll(); assert.match(f.get('message').textContent, /Portal restarting/);
+    await f.poll();
+    assert.match(f.get('context').textContent, /Build #14/);
+    assert.equal(f.get('application').value, 'Portal');
+    assert.equal(f.get('build').value, '14');
+    assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+});
+
+test('Windows Authentication failure is not retried as an app-pool restart', async () => {
+    const f = fixture({ Status: () => ({ __response: true, status: 401, error: 'Unauthorized' }) });
+    await tick();
+    assert.match(f.get('message').textContent, /Windows Authentication failed/);
+    assert.equal(f.requests.filter(r => r.action === 'Status').length, 1);
+});
+
+test('exhausted reconnect retries preserve the page and offer manual Refresh', async () => {
+    const f = fixture({ Status: () => { throw new TypeError('connection reset'); } });
+    await tick();
+    for (let attempt = 0; attempt < 4; attempt++) await f.poll();
+    await tick();
+    assert.match(f.get('message').textContent, /did not reconnect.*Refresh Status/);
+    assert.equal(f.get('refresh').disabled, false);
+    assert.equal(f.get('application').value, 'Portal');
+    assert.equal(f.get('build').value, '14');
     assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
 });

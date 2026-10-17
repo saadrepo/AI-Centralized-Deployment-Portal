@@ -16,6 +16,7 @@ public sealed class PipelineWorkgroupOptions
     public bool ServiceCdEnabled { get; set; } // Explicit authorization, independent of CI; default off.
     public string[] ServiceCdUsers { get; set; } = []; // Real Portal Windows SIDs; default deny.
     public string? ServiceCdIdentitySid { get; set; } // Independently pinned TFS actor SID, not a Portal SID.
+    public bool ServiceDeploymentCancellationEnabled { get; set; } // Separate default-off mutation gate.
     public bool PerUserAuthenticationEnabled { get; set; }
     public string? PersonalCollectionUrl { get; set; } // Optional HTTPS binding for the same configured host/collection.
     public Dictionary<string, string> PerUserTfsIdentities { get; set; } = []; // Portal SID -> personal TFS GUID.
@@ -101,6 +102,15 @@ public sealed class PipelineWorkgroupTransport(PipelineUserTransport windows, IH
         ? ServiceCdAllowed(settings.Value, user) : Session(user) is not null || windows.Available(user);
     public bool AvailableForBuild(ClaimsPrincipal user) => settings.Value.ServiceCiEnabled
         ? ServiceCiAllowed(settings.Value, user) : windows.AvailableForBuild(user);
+    public bool AvailableForDeploymentCancellation(ClaimsPrincipal user) =>
+        settings.Value.ServiceDeploymentCancellationEnabled && ServiceCdAllowed(settings.Value, user);
+
+    public Task<T> RunDeploymentCancellationAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action)
+    {
+        if (!AvailableForDeploymentCancellation(user))
+            throw new UnauthorizedAccessException("Deployment cancellation requires its explicit gate and an authorized Portal Windows SID.");
+        return RunAsync(user, action);
+    }
 
     public async Task<T> RunBuildAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action)
     {
@@ -176,7 +186,8 @@ public sealed class PipelineActionGuard(Uri collection, bool personal, string? a
         var uri = request.RequestUri;
         var path = uri is null ? "" : uri.AbsolutePath;
         var allowedWrite = personal || serviceCd
-            ? request.Method == HttpMethod.Patch && System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/release/approvals/[1-9]\d*$")
+            ? request.Method == HttpMethod.Patch && (System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/release/approvals/[1-9]\d*$")
+                || serviceCd && System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/release/releases/[1-9]\d*/environments/[1-9]\d*$"))
             : (request.Method == HttpMethod.Post && path.EndsWith("/_apis/build/builds", StringComparison.Ordinal))
                 || (request.Method == HttpMethod.Patch && System.Text.RegularExpressions.Regex.IsMatch(path, @"/_apis/build/builds/[1-9]\d*$"));
         if (uri is null || !TfsGitClientConfiguration.IsWithinCollection(uri, collection)

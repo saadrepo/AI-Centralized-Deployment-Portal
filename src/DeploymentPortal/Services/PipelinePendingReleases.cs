@@ -77,7 +77,15 @@ public sealed partial class PipelineService
             releases = rows.Select(r => new { r.ReleaseId, r.Name, r.BuildId, r.ApprovalId, r.ApprovalStatus, r.EnvironmentStatus, r.CanReject, r.RejectReason, r.CanApprove,
                 approveReason = r.ApproveReason ?? r.RejectReason,
                 operationStatus = Text(PipelineTimeline.LatestAttempt(r.Environment), "operationStatus"),
-                deploymentQueueId = Number(PipelineTimeline.LatestAttempt(r.Environment), "queueId") }),
+                deploymentQueueId = Number(PipelineTimeline.LatestAttempt(r.Environment), "queueId"),
+                releaseEnvironmentId = Number(r.Environment, "id"),
+                deploymentAttemptId = Number(PipelineTimeline.LatestAttempt(r.Environment), "id"),
+                deploymentAttempt = Number(PipelineTimeline.LatestAttempt(r.Environment), "attempt"),
+                canCancelDeployment = CanCancelDeployment(user) && PipelineTimeline.LatestAttempt(r.Environment) is { } attempt
+                    && DeploymentCancellationDenial(r.Release, r.Environment, Number(attempt, "id"), Number(attempt, "attempt")) is null,
+                deploymentCancelReason = !CanCancelDeployment(user) ? "Deployment cancellation is disabled or this Portal Windows SID is not authorized."
+                    : PipelineTimeline.LatestAttempt(r.Environment) is not { } current ? "TFS did not return a current deployment attempt."
+                    : DeploymentCancellationDenial(r.Release, r.Environment, Number(current, "id"), Number(current, "attempt")) ?? "TFS will revalidate cancellation permission and current attempt." }),
             executionReason = ExecutionReason(user),
             concurrencyCount = Text(configured["executionPolicy"], "concurrencyCount"),
             queueDepthCount = Text(configured["executionPolicy"], "queueDepthCount"),

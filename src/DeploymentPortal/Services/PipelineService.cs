@@ -325,6 +325,14 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct);
             if (release is null || environment is null) { result.Notices.Add("Waiting for the existing TFS CD trigger to create the matching release. No release was created by the Portal."); return result; }
             result.ReleaseId = Number(release, "id"); result.EnvironmentId = Number(environment, "id");
+            var currentAttempt = PipelineTimeline.LatestAttempt(environment);
+            result.DeploymentAttemptId = Number(currentAttempt, "id") is > 0 ? Number(currentAttempt, "id") : null;
+            result.DeploymentAttempt = Number(currentAttempt, "attempt") is > 0 ? Number(currentAttempt, "attempt") : null;
+            result.DeploymentCancelReason = !CanCancelDeployment(user) ? "Deployment cancellation is disabled or this Portal Windows SID is not authorized."
+                : result.DeploymentAttemptId is null || result.DeploymentAttempt is null ? "TFS did not return a current deployment attempt."
+                : DeploymentCancellationDenial(release, environment, result.DeploymentAttemptId.Value, result.DeploymentAttempt.Value) ?? "TFS will revalidate cancellation permission and current attempt.";
+            result.CanCancelDeployment = CanCancelDeployment(user) && result.DeploymentAttemptId is not null && result.DeploymentAttempt is not null
+                && DeploymentCancellationDenial(release, environment, result.DeploymentAttemptId.Value, result.DeploymentAttempt.Value) is null;
             await HydratePendingApprovals(app, release, environment, ct);
             var approvals = PipelineTimeline.DisplayApprovals(environment).ToList();
             var pending = approvals.Where(a => Text(a, "status") == "pending").OrderBy(a => Number(a, "rank")).ToList();

@@ -13,6 +13,9 @@ public interface IPipelineUserTransport
     Task<T> RunAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action);
     bool AvailableForBuild(ClaimsPrincipal user) => Available(user);
     Task<T> RunBuildAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action) => RunAsync(user, action);
+    bool AvailableForDeploymentCancellation(ClaimsPrincipal user) => false;
+    Task<T> RunDeploymentCancellationAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action) =>
+        throw new UnauthorizedAccessException("Deployment cancellation is disabled.");
 }
 
 public sealed class PipelineUserTransport(IOptions<TfsGitConnectionOptions> options, IHostEnvironment environment) : IPipelineUserTransport

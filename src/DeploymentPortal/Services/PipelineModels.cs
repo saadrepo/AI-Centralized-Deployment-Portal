@@ -21,6 +21,10 @@ public sealed class PipelineSnapshot
     public bool BuildActive { get; set; }
     public bool CanCancel { get; set; }
     public string CancelReason { get; set; } = "Selected build is not queued or running.";
+    public bool CanCancelDeployment { get; set; }
+    public int? DeploymentAttemptId { get; set; }
+    public int? DeploymentAttempt { get; set; }
+    public string DeploymentCancelReason { get; set; } = "Deployment cancellation is disabled or this deployment is not cancellable.";
     public string? HealthUrl { get; set; }
     public string ApprovalReason { get; set; } = "No pending pre-deployment approval.";
     public List<PipelineStage> Stages { get; set; } = [];

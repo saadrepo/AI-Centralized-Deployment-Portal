@@ -355,13 +355,14 @@ public sealed class PipelineTests
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.Queue("Portal", "refs/heads/Dev", default)).StatusCode);
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.PendingReleases("Portal", 7, 9, default)).StatusCode);
         Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.Reject("Portal", 14, 7, 9, 5, 21, default)).StatusCode);
+        Assert.Equal(401, Assert.IsType<ObjectResult>(await controller.CancelDeployment("Portal", 14, 7, 9, 5, 90, 8, 1, default)).StatusCode);
         Assert.Empty(f.Read.Requests); Assert.Empty(f.Write.Requests);
     }
 
     [Fact]
     public void BothMutationActionsRequireAntiforgery()
     {
-        foreach (var method in new[] { "Queue", "Approve", "Cancel", "Reject" })
+        foreach (var method in new[] { "Queue", "Approve", "Cancel", "Reject", "CancelDeployment" })
             Assert.NotEmpty(typeof(PipelineController).GetMethod(method)!.GetCustomAttributes(typeof(ValidateAntiForgeryTokenAttribute), true));
     }
 
@@ -866,6 +867,45 @@ public sealed class PipelineTests
         Assert.True(row["CanReject"]!.GetValue<bool>());
     }
 
+    [Theory]
+    [InlineData("queued", "queuedForAgent", true)]
+    [InlineData("inProgress", "phaseInProgress", true)]
+    [InlineData("succeeded", "phaseSucceeded", false)]
+    [InlineData("failed", "phaseFailed", false)]
+    [InlineData("canceled", "canceled", false)]
+    [InlineData("rejected", "rejected", false)]
+    public async Task DeploymentCancellationEligibilityUsesExactCurrentAttempt(string environmentStatus, string operationStatus, bool eligible)
+    {
+        var f = new Fixture(); f.Users.DeploymentCancellation = true;
+        f.ReleaseTransform = release => { var env = release["environments"]![0]!; env["status"] = environmentStatus;
+            env["deploySteps"]![0]!["operationStatus"] = operationStatus; env["deploySteps"]![0]!["status"] = environmentStatus; return release; };
+        var state = await f.Service.Status("Portal", 14, 7, 9, User, default);
+        Assert.Equal(eligible, state.CanCancelDeployment);
+        Assert.Equal(8, state.DeploymentAttemptId);
+        Assert.Equal(1, state.DeploymentAttempt);
+    }
+
+    [Fact]
+    public async Task CancelDeploymentTargetsExactEnvironmentAndAttemptAndConfirmsTfs()
+    {
+        var f = new Fixture(); f.Users.DeploymentCancellation = true; f.DeploymentActive = true;
+        await f.Service.CancelDeployment("Portal", 14, 7, 9, 5, 90, 8, 1, User, default);
+        var patch = Assert.Single(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+        Assert.EndsWith("/release/releases/5/environments/90", patch.Path);
+        Assert.Equal("canceled", JsonNode.Parse(patch.Body!)!["status"]!.ToString());
+        Assert.Equal("application/json", patch.ContentType);
+    }
+
+    [Fact]
+    public async Task CancelDeploymentIsDefaultOffAndStaleAttemptCannotMutate()
+    {
+        var f = new Fixture { DeploymentActive = true };
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.CancelDeployment("Portal", 14, 7, 9, 5, 90, 8, 1, User, default));
+        f.Users.DeploymentCancellation = true;
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service.CancelDeployment("Portal", 14, 7, 9, 5, 90, 7, 1, User, default));
+        Assert.DoesNotContain(f.Write.Requests, r => r.Method == HttpMethod.Patch);
+    }
+
     [Fact]
     public async Task QueuedEnvironmentWithoutLiveApprovalCannotBeApproved()
     {
@@ -900,7 +940,7 @@ public sealed class PipelineTests
         public bool NoRelease, DuplicateRelease, WrongBuild, NoDefinition, CreatorIsUser, DenyApproval, Deployed, MalformedQueueResponse, QueueTimeout;
         public string BuildStatus = "completed";
         public string? BuildResult = "succeeded";
-        public bool StopAllowed = true, CancelCompletesImmediately, BuildCompletesDuringPermission, TimelineMissing, SourceRunning, NoSource, NoArtifact;
+        public bool StopAllowed = true, CancelCompletesImmediately, BuildCompletesDuringPermission, TimelineMissing, SourceRunning, NoSource, NoArtifact, DeploymentActive, DeploymentCancelled;
         public HttpStatusCode? QueueFailure, DefinitionFailure, ApprovalFailure;
         public Func<JsonNode, JsonNode>? ReleaseTransform;
         public JsonNode? LiveApprovals;
@@ -923,7 +963,10 @@ public sealed class PipelineTests
         private JsonNode ReleaseData() => JsonNode.Parse("""{"id":5,"status":"active","releaseDefinition":{"id":7},"createdBy":{"id":"CREATOR"},"artifacts":[ARTIFACT],"environments":[{"id":90,"definitionEnvironmentId":9,"name":"SOURCE-Portal","status":"DEPLOYSTATUS","preDeployApprovals":[{"id":21,"revision":1,"rank":1,"attempt":1,"approvalType":"preDeploy","status":"APPROVALSTATUS","approver":{"id":"USERID"}}],"deploySteps":[{"id":8,"attempt":1,"releaseDeployPhases":[{"id":8,"deploymentJobs":[{"tasks":[{"id":11,"name":"Deploy","status":"succeeded"}]}]}]}]}]}"""
             .Replace("CREATOR", CreatorIsUser ? UserId : "other-user").Replace("ARTIFACT", Artifact).Replace("DEPLOYSTATUS", Deployed ? "succeeded" : "notStarted")
             .Replace("APPROVALSTATUS", Deployed ? "approved" : "pending").Replace("USERID", UserId))!;
-        public JsonNode Release() { var release = ReleaseData(); return ReleaseTransform?.Invoke(release) ?? release; }
+        public JsonNode Release() { var release = ReleaseData(); if (DeploymentActive || DeploymentCancelled) { var env = release["environments"]![0]!;
+            env["status"] = DeploymentCancelled ? "canceled" : "inProgress"; env["deploySteps"]![0]!["status"] = DeploymentCancelled ? "canceled" : "inProgress";
+            env["deploySteps"]![0]!["operationStatus"] = DeploymentCancelled ? "canceled" : "phaseInProgress"; }
+            return ReleaseTransform?.Invoke(release) ?? release; }
         private HttpResponseMessage Respond(HttpRequestMessage request)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -934,6 +977,11 @@ public sealed class PipelineTests
                 BuildStatus = CancelCompletesImmediately ? "completed" : "cancelling";
                 BuildResult = CancelCompletesImmediately ? "canceled" : null;
                 return Json("{}");
+            }
+            if (path.EndsWith("/release/releases/5/environments/90"))
+            {
+                if (request.Method == HttpMethod.Patch) DeploymentCancelled = true;
+                return Json(Release()["environments"]![0]!.ToJsonString());
             }
             if (request.Method == HttpMethod.Patch && ApprovalFailure is { } approvalFailure)
                 return new(approvalFailure) { Content = new StringContent("""{"typeKey":"ReleaseApprovalException","message":"TF400123 password=DO_NOT_EXPOSE"}""") };
@@ -1042,8 +1090,12 @@ public sealed class PipelineTests
     private sealed class FakeUsers(HttpClient client) : IPipelineUserTransport
     {
         public bool Delegated = true;
+        public bool DeploymentCancellation;
         public bool Available(ClaimsPrincipal user) => Delegated;
         public Task<T> RunAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action) => action(client, UserId);
+        public bool AvailableForDeploymentCancellation(ClaimsPrincipal user) => DeploymentCancellation && Delegated;
+        public Task<T> RunDeploymentCancellationAsync<T>(ClaimsPrincipal user, Func<HttpClient, string, Task<T>> action) =>
+            DeploymentCancellation && Delegated ? action(client, UserId) : throw new UnauthorizedAccessException();
     }
     private sealed class Snapshot<T>(T value) : IOptionsSnapshot<T> where T : class
     { public T Value => value; public T Get(string? name) => value; }

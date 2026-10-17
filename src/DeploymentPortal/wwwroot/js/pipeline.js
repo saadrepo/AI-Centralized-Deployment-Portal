@@ -28,13 +28,17 @@
         const data = new URLSearchParams(args);
         if (post) data.set('__RequestVerificationToken', root.querySelector('[name="__RequestVerificationToken"]').value);
         const started = performance.now();
-        const response = await fetch(`${base}/${action}${post ? '' : `?${data}`}`, {
+        let response;
+        try { response = await fetch(`${base}/${action}${post ? '' : `?${data}`}`, {
             method: post ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', signal,
             headers: post ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}, body: post ? data : undefined
-        });
+        }); } catch (failure) { failure.pipelineTransient = !post; throw failure; }
         const headersMs = performance.now() - started;
         let body;
-        try { body = await response.json(); } catch { throw new Error('Server response unavailable. Check authentication and refresh status.'); }
+        try { body = await response.json(); } catch {
+            const error = new Error('Server response unavailable. Check authentication and refresh status.');
+            error.status = response.status; error.pipelineTransient = !post && [0, 502, 503, 504].includes(response.status); throw error;
+        }
         if (action === 'Queue' || action === 'History' || action === 'Status') {
             console.info('Pipeline timing', { action, headersMs: Math.round(headersMs), totalMs: Math.round(performance.now() - started),
                 serverTiming: response.headers?.get?.('Server-Timing') || 'unavailable', httpStatus: response.status });
@@ -43,9 +47,24 @@
             const error = new Error(body.error || `Request failed (${response.status}).`);
             error.mayHaveQueued = body.mayHaveQueued;
             error.mayHaveReachedTfs = body.mayHaveReachedTfs;
+            error.status = response.status;
+            error.pipelineTransient = !post && [0, 502, 503, 504].includes(response.status);
             throw error;
         }
         return body;
+    }
+    const reconnectDelay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+    async function statusRequest(action, args, turn, scope) {
+        const delays = [1000, 2000, 4000, 8000];
+        for (let attempt = 0; ; attempt++) {
+            try { return await request(action, args); }
+            catch (error) {
+                if (error.name === 'AbortError' || error.status === 401 || error.status === 403 || !error.pipelineTransient
+                    || attempt >= delays.length || turn !== generation || scope !== JSON.stringify(selection())) throw error;
+                message('Portal restarting — reconnecting...');
+                await reconnectDelay(delays[attempt]);
+            }
+        }
     }
     function buttons() {
         get('run-label').textContent = activeAction === 'Queue' ? 'Queuing Build...' : 'Run CI Build';
@@ -58,6 +77,9 @@
         get('cancel').disabled = mutation || busy || !snapshot?.canCancel || cancelRequestedId === Number(build.value);
         get('cancel').title = snapshot?.cancelReason || 'Waiting for current build state and Stop builds permission.';
         get('approve').disabled = mutation || busy || actionUncertain || !snapshot?.canApprove;
+        get('cancel-deployment').hidden = !snapshot?.canCancelDeployment;
+        get('cancel-deployment').disabled = mutation || busy || actionUncertain || !snapshot?.canCancelDeployment;
+        get('cancel-deployment').title = snapshot?.deploymentCancelReason || 'Deployment cancellation is disabled or unavailable.';
         get('refresh').disabled = mutation || busy;
         [app, build, branch, environment].forEach(el => { if (mutation) el.disabled = true; });
         get('action-reason').textContent = activeAction === 'Queue' ? 'Queuing Build... Waiting for TFS to return the real build ID.' : actionUncertain ? 'Action outcome is unconfirmed. Use Refresh Status to reconcile before retrying.'
@@ -214,11 +236,15 @@
             }).catch(() => { /* Full status owns error handling; it also returns CI history. */ });
         }
         try {
-            const state = await request('Status', args);
+            const state = await statusRequest('Status', args, turn, scope);
             if (turn !== generation || version !== refreshVersion || mutation || scope !== JSON.stringify(selection())) return;
             settled = true; fullSucceeded = true;
             failures = 0; render(state); if (!skipPending) pendingReleases();
-        } catch (error) { if (error.name !== 'AbortError' && turn === generation) { failures++; snapshot = null; message(error.message, true); } }
+        } catch (error) { if (error.name !== 'AbortError' && turn === generation) {
+            failures++;
+            if (error.pipelineTransient) message('Portal did not reconnect within the retry window. Use Refresh Status to try again.', true);
+            else { snapshot = null; message(error.status === 401 || error.status === 403 ? 'Windows Authentication failed. Sign in again, then use Refresh Status.' : error.message, true); }
+        } }
         finally { settled = true; if (turn === generation) { busy = false; buttons(); schedule(); } }
     }
     async function pendingReleases() {
@@ -259,6 +285,24 @@
                         });
                         item.append(decisionButton);
                     }
+                }
+                if (row.canCancelDeployment) {
+                    const cancelDeployment = text('button', 'Cancel Deployment', 'btn btn-outline-danger');
+                    cancelDeployment.title = row.deploymentCancelReason;
+                    cancelDeployment.addEventListener('click', async () => {
+                        if (cancelDeployment.disabled || mutation || busy || actionUncertain || turn !== generation || scope !== JSON.stringify(selection())) return;
+                        if (!window.confirm(`Cancel deployment for ${row.name} (Release ID ${row.releaseId}, Build ID ${row.buildId}, Environment ID ${row.releaseEnvironmentId}, Attempt ${row.deploymentAttempt})? This does not cancel the CI build, reject an approval or abandon the release.`)) return;
+                        mutation = true; clearTimeout(timer); generation++; abort.abort(); abort = new AbortController();
+                        panel.querySelectorAll('button').forEach(button => { button.disabled = true; }); buttons();
+                        try {
+                            const result = await request('CancelDeployment', { ...args, buildId: row.buildId, releaseId: row.releaseId,
+                                releaseEnvironmentId: row.releaseEnvironmentId, deploymentAttemptId: row.deploymentAttemptId,
+                                deploymentAttempt: row.deploymentAttempt }, true);
+                            decisionNotice = { text: result.message, error: false };
+                        } catch (error) { actionUncertain = error.mayHaveReachedTfs !== false; decisionNotice = { text: error.message, error: true }; }
+                        finally { mutation = false; buttons(); await Promise.allSettled([pendingReleases(), refresh(true)]); }
+                    });
+                    item.append(cancelDeployment);
                 }
                 panel.append(item);
             });
@@ -330,6 +374,18 @@
     get('run').addEventListener('click', () => mutate('Queue'));
     get('cancel').addEventListener('click', () => mutate('Cancel'));
     get('approve').addEventListener('click', () => mutate('Approve'));
+    get('cancel-deployment').addEventListener('click', async () => {
+        if (mutation || busy || actionUncertain || !snapshot?.canCancelDeployment) return;
+        if (!window.confirm(`Cancel deployment for Release ID ${snapshot.releaseId}, Build ID ${snapshot.buildId}, Environment ID ${snapshot.environmentId}, Attempt ${snapshot.deploymentAttempt}? This does not cancel the CI build, reject an approval or abandon the release.`)) return;
+        mutation = true; clearTimeout(timer); abort.abort(); abort = new AbortController(); generation++; buttons();
+        try {
+            const result = await request('CancelDeployment', { ...selection(), releaseId: snapshot.releaseId,
+                releaseEnvironmentId: snapshot.environmentId, deploymentAttemptId: snapshot.deploymentAttemptId,
+                deploymentAttempt: snapshot.deploymentAttempt }, true);
+            decisionNotice = { text: result.message, error: false };
+        } catch (error) { actionUncertain = error.mayHaveReachedTfs !== false; decisionNotice = { text: error.message, error: true }; }
+        finally { mutation = false; buttons(); await refresh(); }
+    });
     get('refresh').addEventListener('click', async () => {
         actionUncertain = false;
         if (app.value) await load(build.value); else await initialize();

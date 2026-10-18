@@ -17,6 +17,10 @@ public sealed class DemoReleaseDiscoveryTests
     [Theory]
     [InlineData("succeeded", "approved", false)]
     [InlineData("notStarted", "pending", true)]
+    [InlineData("succeeded", "approved", false, "multiple")]
+    [InlineData("notStarted", "pending", true, "multiple")]
+    [InlineData("canceled", "approved", false, "multiple")]
+    [InlineData("canceled", "pending", false, "multiple")]
     [InlineData("succeeded", "approved", false, "http", "release/releases", "release candidate retrieval", "HttpRequestException", 403)]
     [InlineData("succeeded", "approved", false, "json", "release/releases/27", "release detail retrieval", "JsonReaderException", null)]
     [InlineData("succeeded", "approved", false, "duplicate", "release/releases", "release artifact matching", "InvalidOperationException", null)]
@@ -39,6 +43,28 @@ public sealed class DemoReleaseDiscoveryTests
         release["environments"]![0]!["status"] = environmentStatus;
         release["environments"]![0]!["preDeployApprovals"]![0]!["status"] = approvalStatus;
         if (failure == "malformed") release["artifacts"] = JsonNode.Parse("""["SECRET token=password"]""");
+        var listed = new JsonArray(release.DeepClone());
+        if (failure == "multiple")
+        {
+            foreach (var olderId in new[] { 25, 26 })
+            {
+                var older = release.DeepClone();
+                older["id"] = olderId;
+                older["environments"]![0]!["id"] = olderId;
+                older["environments"]![0]!["status"] = "notStarted";
+                older["environments"]![0]!["preDeployApprovals"]![0]!["id"] = olderId;
+                older["environments"]![0]!["preDeployApprovals"]![0]!["status"] = "pending";
+                listed.Add(older);
+            }
+            var unrelatedEnvironment = release.DeepClone();
+            unrelatedEnvironment["id"] = 28;
+            unrelatedEnvironment["environments"]![0]!["definitionEnvironmentId"] = 99;
+            listed.Add(unrelatedEnvironment);
+            var unrelatedBuild = release.DeepClone();
+            unrelatedBuild["id"] = 29;
+            unrelatedBuild["artifacts"]![0]!["definitionReference"]!["version"]!["id"] = "10";
+            listed.Add(unrelatedBuild);
+        }
         var paths = new List<string>();
         using var http = new HttpClient(new ReadHandler(request =>
         {
@@ -61,7 +87,7 @@ public sealed class DemoReleaseDiscoveryTests
                 "build/builds/9/logs" => """{"value":[]}""",
                 "release/definitions" => new JsonObject { ["value"] = new JsonArray(definition.DeepClone()) }.ToJsonString(),
                 "release/definitions/2" => definition.ToJsonString(),
-                "release/releases" => new JsonObject { ["value"] = new JsonArray(release.DeepClone()) }.ToJsonString(),
+                "release/releases" => new JsonObject { ["value"] = listed.DeepClone() }.ToJsonString(),
                 "release/releases/27" => release.ToJsonString(),
                 "release/approvals" => """{"value":[]}""",
                 _ => throw new InvalidOperationException("Unexpected request: " + path)
@@ -80,7 +106,7 @@ public sealed class DemoReleaseDiscoveryTests
         var state = await service.Status("Demo", 9, 2, 2,
             new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "test")], "Test")), default);
 
-        if (failure is not null)
+        if (failure is not null && failure != "multiple")
         {
             Assert.Null(state.ReleaseId);
             Assert.Null(state.EnvironmentId);
@@ -136,9 +162,17 @@ public sealed class DemoReleaseDiscoveryTests
         else
         {
             Assert.Null(state.ApprovalId);
-            Assert.Equal("completed", state.Stages[3].State);
-            Assert.Equal("completed", state.Stages[4].State);
-            Assert.Contains("succeeded", state.Status, StringComparison.OrdinalIgnoreCase);
+            if (environmentStatus == "canceled")
+            {
+                Assert.Equal("failed", state.Stages[4].State);
+                Assert.Equal("Deployment failed", state.Status);
+            }
+            else
+            {
+                Assert.Equal("completed", state.Stages[3].State);
+                Assert.Equal("completed", state.Stages[4].State);
+                Assert.Contains("succeeded", state.Status, StringComparison.OrdinalIgnoreCase);
+            }
         }
         Assert.Contains("release/releases/27", paths);
     }

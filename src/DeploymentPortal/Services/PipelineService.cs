@@ -276,6 +276,18 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         {
             matches = candidates.Where(r => Number(r["releaseDefinition"], "id") == releaseDefinitionId
                 && Items(r["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!, buildId))).ToList();
+            if (string.Equals(app.Key, "Demo", StringComparison.OrdinalIgnoreCase) && exactReleaseId is null)
+            {
+                // A build may legitimately trigger multiple releases. TFS release IDs
+                // order their creation; deployment outcome must not prefer an older run.
+                matches = matches.Where(r => Items(r["environments"])
+                    .Any(e => Number(e, "definitionEnvironmentId") == environmentId)).ToList();
+                if (matches.Count > 1 && matches.All(r => Number(r, "id") > 0))
+                {
+                    var latestId = matches.Max(r => Number(r, "id"));
+                    matches = matches.Where(r => Number(r, "id") == latestId).ToList();
+                }
+            }
         }
         catch (InvalidOperationException)
         {
@@ -299,6 +311,10 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             ?? throw new ArgumentException("Selected environment is missing from release.");
         return (rd, release, environment);
     }
+
+    private static bool DemoApprovalTerminal(RegistryApplication app, JsonNode environment) =>
+        string.Equals(app.Key, "Demo", StringComparison.OrdinalIgnoreCase)
+        && Text(environment, "status") is "succeeded" or "failed" or "canceled" or "cancelled" or "rejected" or "partiallySucceeded";
 
     private void LogDemoArtifactMatching(RegistryApplication app, IEnumerable<JsonNode> candidates, string reason)
     {
@@ -414,6 +430,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             failureStage = "approval status parsing";
             var approvals = PipelineTimeline.DisplayApprovals(environment).ToList();
             var pending = approvals.Where(a => Text(a, "status") == "pending").OrderBy(a => Number(a, "rank")).ToList();
+            if (DemoApprovalTerminal(app, environment)) pending.Clear();
             if (approvals.Any(a => Text(a, "status") == "rejected"))
             {
                 result.Status = "Approval rejected";
@@ -447,6 +464,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             }
             else if (approvals.Any(a => Text(a, "status") == "rejected")) result.Stages[3] = new("Approval", "failed", "Rejected");
             else if (approvals.Count > 0 && approvals.All(a => Text(a, "status") == "approved")) result.Stages[3] = new("Approval", "completed", "Approved in TFS");
+            else if (DemoApprovalTerminal(app, environment)) result.Stages[3] = new("Approval", "pending", "No actionable approval for terminal deployment");
             else
             {
                 result.Stages[3] = new("Approval", "pending", "No completed manual approval evidence");
@@ -458,7 +476,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
                 result.Stages[5] = new("Verify Health", "pending", "Waiting for deployment");
                 return result;
             }
-            if (result.Stages[3].State != "completed")
+            if (result.Stages[3].State != "completed" && !DemoApprovalTerminal(app, environment))
             {
                 result.Status = result.Stages[3].State == "failed" ? "Approval rejected" : "Waiting for approval status";
                 result.TimelineMessage = result.Status;
@@ -574,6 +592,8 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         stage = "release/build/environment correlation";
         var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct, expectedReleaseId);
         if (release is null || environment is null || Number(release, "id") != expectedReleaseId) throw new ArgumentException("Release changed; refresh before approval.");
+        if (decision == "approved" && DemoApprovalTerminal(app, environment))
+            throw new ArgumentException("The selected Demo deployment is already terminal; no approval can start it.");
         if (decision == "approved")
         {
             var artifact = await List(Path(app, $"build/builds/{buildId}/artifacts"), ct);

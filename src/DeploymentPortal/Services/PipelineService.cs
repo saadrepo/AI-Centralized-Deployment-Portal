@@ -8,7 +8,8 @@ using static DeploymentPortal.Services.PipelineState;
 namespace DeploymentPortal.Services;
 
 public sealed partial class PipelineService(HttpClient client, ISiteRegistry registry, IOptions<TfsCdOptions> gates,
-    IPipelineUserTransport users, ILogger<PipelineService> logger, IPipelineHealthCheck health, IOptions<PipelineCiOptions> ci)
+    IPipelineUserTransport users, ILogger<PipelineService> logger, IPipelineHealthCheck health, IOptions<PipelineCiOptions> ci,
+    IPipelineReleaseDiagnosticFile? diagnosticFile = null)
 {
     public IReadOnlyList<PipelineOption> Applications() => registry.List()
         .Where(x => x.TfsGitCiDefinitionId > 0).Select(x => new PipelineOption(x.Key, x.DisplayName)).ToList();
@@ -254,24 +255,33 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
     }
 
     private async Task<(JsonNode Definition, JsonNode? Release, JsonNode? Environment)> Release(RegistryApplication app, JsonNode definition,
-        int buildId, int releaseDefinitionId, int environmentId, CancellationToken ct, int? exactReleaseId = null)
+        int buildId, int releaseDefinitionId, int environmentId, CancellationToken ct, int? exactReleaseId = null,
+        Action<string, string>? diagnosticStage = null)
     {
+        diagnosticStage?.Invoke("release definition discovery", "release/definitions");
         if (!(await ReleaseDefinitions(app, definition, ct)).Any(x => Number(x, "id") == releaseDefinitionId))
             throw new ArgumentException("Release definition is not associated with this application's CI pipeline.");
+        diagnosticStage?.Invoke("release definition retrieval", "release/definitions/{id}");
         var rd = await ReadAsync(client, Path(app, $"release/definitions/{releaseDefinitionId}", "4.1-preview.3"), ct);
+        diagnosticStage?.Invoke("release definition validation", "release/definitions/{id}");
         if (!Items(rd["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!))
             || !Items(rd["environments"]).Any(e => Number(e, "id") == environmentId)) throw new ArgumentException("Invalid release environment mapping.");
+        diagnosticStage?.Invoke("release candidate retrieval", exactReleaseId is > 0 ? "release/releases/{id}" : "release/releases");
         var candidates = exactReleaseId is > 0
             ? new List<JsonNode> { await ReadAsync(client, Path(app, $"release/releases/{exactReleaseId.Value}", "4.1-preview.6"), ct) }
             : await List(Path(app, "release/releases", "4.1-preview.6") + $"&definitionId={releaseDefinitionId}&artifactVersionId={buildId}&$expand=artifacts,environments&$top=100&queryOrder=descending", ct);
+        diagnosticStage?.Invoke("release artifact matching", "release/releases");
         var matches = candidates.Where(r => Number(r["releaseDefinition"], "id") == releaseDefinitionId
             && Items(r["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!, buildId))).ToList();
         if (matches.Count > 1) throw new InvalidOperationException("Multiple releases match this build; approval is disabled until the ambiguity is resolved.");
         if (matches.Count == 0) return (rd, null, null);
+        diagnosticStage?.Invoke("release detail retrieval", "release/releases/{id}");
         var release = await ReadAsync(client, Path(app, $"release/releases/{Number(matches[0], "id")}", "4.1-preview.6"), ct);
+        diagnosticStage?.Invoke("release detail validation", "release/releases/{id}");
         if (Number(release["releaseDefinition"], "id") != releaseDefinitionId
             || !Items(release["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!, buildId)))
             throw new ArgumentException("Release artifact changed; refresh the selection.");
+        diagnosticStage?.Invoke("release environment matching", "release/releases/{id}");
         var environment = Items(release["environments"]).SingleOrDefault(e => Number(e, "definitionEnvironmentId") == environmentId)
             ?? throw new ArgumentException("Selected environment is missing from release.");
         return (rd, release, environment);
@@ -320,11 +330,16 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         result.TimelineMessage = "Waiting for the matching TFS release.";
         result.Events.Clear(); // Active CD remains separate; CiEvents/CiLogs retain real CI history.
         result.Logs.Clear();
+        var failureStage = "release discovery";
+        var endpoint = "release/definitions";
         try
         {
-            var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct);
+            var (rd, release, environment) = await Release(app, definition, buildId, releaseDefinitionId, environmentId, ct,
+                diagnosticStage: (stage, name) => { failureStage = stage; endpoint = name; });
             if (release is null || environment is null) { result.Notices.Add("Waiting for the existing TFS CD trigger to create the matching release. No release was created by the Portal."); return result; }
             result.ReleaseId = Number(release, "id"); result.EnvironmentId = Number(environment, "id");
+            failureStage = "deployment attempt status";
+            endpoint = "release/releases/{id}";
             var currentAttempt = PipelineTimeline.LatestAttempt(environment);
             result.DeploymentAttemptId = Number(currentAttempt, "id") is > 0 ? Number(currentAttempt, "id") : null;
             result.DeploymentAttempt = Number(currentAttempt, "attempt") is > 0 ? Number(currentAttempt, "attempt") : null;
@@ -333,7 +348,10 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
                 : DeploymentCancellationDenial(release, environment, result.DeploymentAttemptId.Value, result.DeploymentAttempt.Value) ?? "TFS will revalidate cancellation permission and current attempt.";
             result.CanCancelDeployment = CanCancelDeployment(user) && result.DeploymentAttemptId is not null && result.DeploymentAttempt is not null
                 && DeploymentCancellationDenial(release, environment, result.DeploymentAttemptId.Value, result.DeploymentAttempt.Value) is null;
+            failureStage = "pending approval retrieval";
+            endpoint = "release/approvals";
             await HydratePendingApprovals(app, release, environment, ct);
+            failureStage = "approval status parsing";
             var approvals = PipelineTimeline.DisplayApprovals(environment).ToList();
             var pending = approvals.Where(a => Text(a, "status") == "pending").OrderBy(a => Number(a, "rank")).ToList();
             if (approvals.Any(a => Text(a, "status") == "rejected"))
@@ -357,6 +375,7 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
                 if (CanExecute(user) && Text(build, "status") == "completed" && Text(build, "result") == "succeeded" && result.Stages[2].State == "completed")
                     await users.RunAsync(user, async (http, identity) =>
                     {
+                        failureStage = "current-user approval eligibility";
                         var eligible = await EligibleApprovals(http, app, Number(release, "id"), identity, ct);
                         var approval = pending.FirstOrDefault(a => ApprovalAllowed(rd, release, environment, a, identity, eligible.Contains(Number(a, "id"))));
                         result.CanApprove = approval is not null;
@@ -386,14 +405,20 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
                 result.Stages[4] = new("Deploy to IIS", "pending", "Waiting for approval status");
                 return result;
             }
+            failureStage = "deployment status parsing";
+            endpoint = "release/releases/{id}";
             result.Stages[4] = PipelineTimeline.Deployment(environment);
             result.Status = result.Stages[4].State == "running" ? "CD running" : result.Stages[4].State == "failed" ? "Deployment failed" : result.Stages[4].Detail;
             result.TimelineMessage = "Waiting for deployment task status.";
             if (result.Stages[4].State == "pending")
             { result.TimelineMessage = result.Stages[4].Detail; return result; }
+            failureStage = "release task log retrieval";
+            endpoint = "release/releases/{id}/environments/{id}/deployPhases/{id}/tasks/{id}/logs";
             await ReleaseLogs(app, result.ReleaseId.Value, environment, result, ct);
             if (result.Stages[4].State == "completed")
             {
+                failureStage = "health verification";
+                endpoint = "configured health endpoint";
                 var check = await health.Check(app.Key, ct);
                 result.HealthUrl = check.Url;
                 result.Stages[5] = new("Verify Health", check.State, check.Detail);
@@ -402,6 +427,12 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or UnauthorizedAccessException)
         {
+            // Temporary diagnostics: constant endpoint/stage labels only. Never log the
+            // exception object/message, request URL, response body or authentication data.
+            logger.LogWarning("Pipeline status release discovery failed: Endpoint={Endpoint}, HttpStatus={HttpStatus}, ExceptionType={ExceptionType}, Stage={Stage}.",
+                endpoint, ex is HttpRequestException requestError ? (int?)requestError.StatusCode : null, ex.GetType().Name, failureStage);
+            if (string.Equals(app.Key, "Demo", StringComparison.OrdinalIgnoreCase))
+                diagnosticFile?.Write(failureStage, endpoint, ex is HttpRequestException fileError ? (int?)fileError.StatusCode : null, ex.GetType().Name);
             result.ApprovalReason = ex is HttpRequestException httpError
                 ? $"TFS approval verification failed (HTTP {(int?)httpError.StatusCode}). Current-user permission is unverified."
                 : ex is UnauthorizedAccessException ? "Windows/TFS identity could not be verified for approval."

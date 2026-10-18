@@ -17,6 +17,7 @@ public static class TfsGitClientConfiguration
     public static IServiceCollection AddTfsGitClient(this IServiceCollection services)
     {
         services.TryAddSingleton<ITfsWindowsCredentialProvider, TfsWindowsCredentialProvider>();
+        services.TryAddSingleton<IPipelineReleaseDiagnosticFile, PipelineReleaseDiagnosticFile>();
         services.AddOptions<TfsGitConnectionOptions>().BindConfiguration("TfsGit")
             .Validate(options => IsAllowedBaseUrl(options.BaseUrl), InvalidBaseUrlMessage)
             .ValidateOnStart();

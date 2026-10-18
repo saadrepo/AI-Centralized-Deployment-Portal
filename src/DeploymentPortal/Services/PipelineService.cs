@@ -271,9 +271,22 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
             ? new List<JsonNode> { await ReadAsync(client, Path(app, $"release/releases/{exactReleaseId.Value}", "4.1-preview.6"), ct) }
             : await List(Path(app, "release/releases", "4.1-preview.6") + $"&definitionId={releaseDefinitionId}&artifactVersionId={buildId}&$expand=artifacts,environments&$top=100&queryOrder=descending", ct);
         diagnosticStage?.Invoke("release artifact matching", "release/releases");
-        var matches = candidates.Where(r => Number(r["releaseDefinition"], "id") == releaseDefinitionId
-            && Items(r["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!, buildId))).ToList();
-        if (matches.Count > 1) throw new InvalidOperationException("Multiple releases match this build; approval is disabled until the ambiguity is resolved.");
+        List<JsonNode> matches;
+        try
+        {
+            matches = candidates.Where(r => Number(r["releaseDefinition"], "id") == releaseDefinitionId
+                && Items(r["artifacts"]).Any(a => ArtifactMatches(a, app.TfsGitCiDefinitionId!.Value, Text(definition["project"], "id")!, buildId))).ToList();
+        }
+        catch (InvalidOperationException)
+        {
+            LogDemoArtifactMatching(app, candidates, "artifact matching property access failed");
+            throw;
+        }
+        if (matches.Count > 1)
+        {
+            LogDemoArtifactMatching(app, matches, "multiple matching release entries");
+            throw new InvalidOperationException("Multiple releases match this build; approval is disabled until the ambiguity is resolved.");
+        }
         if (matches.Count == 0) return (rd, null, null);
         diagnosticStage?.Invoke("release detail retrieval", "release/releases/{id}");
         var release = await ReadAsync(client, Path(app, $"release/releases/{Number(matches[0], "id")}", "4.1-preview.6"), ct);
@@ -285,6 +298,53 @@ public sealed partial class PipelineService(HttpClient client, ISiteRegistry reg
         var environment = Items(release["environments"]).SingleOrDefault(e => Number(e, "definitionEnvironmentId") == environmentId)
             ?? throw new ArgumentException("Selected environment is missing from release.");
         return (rd, release, environment);
+    }
+
+    private void LogDemoArtifactMatching(RegistryApplication app, IEnumerable<JsonNode> candidates, string reason)
+    {
+        if (!string.Equals(app.Key, "Demo", StringComparison.OrdinalIgnoreCase)) return;
+        // Enumerate properties rather than indexing: malformed nodes and duplicate JSON
+        // keys must not throw again while diagnosing the original matching failure.
+        static JsonNode? Property(JsonNode? node, string name) => node is JsonObject obj
+            ? obj.FirstOrDefault(p => p.Key == name).Value : null;
+        static string Shape(JsonNode? node) => node switch
+        {
+            null => "null", JsonObject => "object", JsonArray => "array", _ => "scalar"
+        };
+        try
+        {
+            var shapes = candidates.Select(candidate =>
+            {
+                var id = Property(candidate, "id");
+                var artifacts = Property(candidate, "artifacts");
+                return new
+                {
+                    releaseId = id is JsonValue && int.TryParse(id.ToString(), out var number) ? (int?)number : null,
+                    candidateShape = Shape(candidate),
+                    releaseDefinitionShape = Shape(Property(candidate, "releaseDefinition")),
+                    artifactsShape = Shape(artifacts),
+                    artifactShapes = (artifacts is JsonArray array ? array.AsEnumerable() : []).Select(artifact => new
+                    {
+                        artifactShape = Shape(artifact),
+                        definitionReferenceShape = Shape(Property(artifact, "definitionReference")),
+                        definitionShape = Shape(Property(Property(artifact, "definitionReference"), "definition")),
+                        projectShape = Shape(Property(Property(artifact, "definitionReference"), "project")),
+                        versionShape = Shape(Property(Property(artifact, "definitionReference"), "version"))
+                    }).ToArray()
+                };
+            }).ToArray();
+            logger.LogWarning("Demo release artifact matching: Candidates={Candidates}, FailureReason={FailureReason}.",
+                JsonSerializer.Serialize(shapes), reason);
+            diagnosticFile?.WriteArtifactMatching(JsonSerializer.SerializeToElement(shapes), reason);
+        }
+        catch (InvalidOperationException)
+        {
+            // A malformed JsonObject (including duplicate keys) can prevent even safe
+            // enumeration. Keep the original exception and never log its message.
+            logger.LogWarning("Demo release artifact matching: Candidates={Candidates}, FailureReason={FailureReason}.",
+                "[]", "candidate shape inspection failed");
+            diagnosticFile?.WriteArtifactMatching(JsonSerializer.SerializeToElement(Array.Empty<object>()), "candidate shape inspection failed");
+        }
     }
 
     public async Task<PipelineSnapshot> Status(string key, int buildId, int releaseDefinitionId, int environmentId, ClaimsPrincipal user, CancellationToken ct, bool historyOnly = false)

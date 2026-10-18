@@ -5,6 +5,7 @@ namespace DeploymentPortal.Services;
 public interface IPipelineReleaseDiagnosticFile
 {
     void Write(string stage, string endpoint, int? httpStatus, string exceptionType);
+    void WriteArtifactMatching(JsonElement candidates, string failureReason);
 }
 
 // Temporary Demo-only diagnostics. The caller supplies constant labels, never URLs,
@@ -16,6 +17,13 @@ public sealed class PipelineReleaseDiagnosticFile(string? directory = null) : IP
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DeploymentPortal", "Diagnostics");
 
     public void Write(string stage, string endpoint, int? httpStatus, string exceptionType)
+        => Append(new { stage, endpoint, httpStatus, exceptionType });
+
+    // Candidates are the sanitized ID/shape projection, never upstream JSON.
+    public void WriteArtifactMatching(JsonElement candidates, string failureReason)
+        => Append(new { candidates, failureReason });
+
+    private void Append(object entry)
     {
         try
         {
@@ -29,7 +37,7 @@ public sealed class PipelineReleaseDiagnosticFile(string? directory = null) : IP
                 if (File.Exists(file) && (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) return;
                 // Bound this temporary file; diagnostics must not fill the server disk.
                 if (File.Exists(file) && new FileInfo(file).Length >= 1_048_576) return;
-                File.AppendAllText(file, JsonSerializer.Serialize(new { stage, endpoint, httpStatus, exceptionType }) + Environment.NewLine);
+                File.AppendAllText(file, JsonSerializer.Serialize(entry) + Environment.NewLine);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)

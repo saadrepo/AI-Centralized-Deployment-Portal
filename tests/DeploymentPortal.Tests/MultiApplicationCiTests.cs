@@ -25,7 +25,7 @@ public class MultiApplicationCiTests
         Assert.Equal(new[] { "Portal","API","Finance","Demo" },apps.Select(x=>x.Key));
         Assert.Equal(1,apps[0].TfsGitCiDefinitionId);
         var demo=apps[3]; Assert.Equal(2,demo.TfsGitCiDefinitionId); Assert.Equal("Demo-App-Repo",demo.TfsGitRepository);
-        Assert.Equal("deployment-test.vitonta.com",demo.Destinations.Single().ServerHostNameOrIp); Assert.Equal("CdDemo",demo.Destinations.Single().SiteName);
+        Assert.Equal("192.168.4.12",demo.Destinations.Single().ServerHostNameOrIp); Assert.Equal("CdDemo",demo.Destinations.Single().SiteName);
         Assert.False(config.GetValue<bool>("TfsCd:ExplorerEnabled")); Assert.False(config.GetValue<bool>("TfsCd:Enabled")); Assert.False(config.GetValue<bool>("TfsCd:ExecutionEnabled"));
     }
     private static RegistryApplication Demo() => new() { Key="Demo", DisplayName="Demo", TfsGitCiDefinitionId=2, TfsGitRepository="Demo-App-Repo" };

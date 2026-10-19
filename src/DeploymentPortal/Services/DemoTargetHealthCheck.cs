@@ -17,12 +17,16 @@ public sealed class DemoTargetHealthCheck(ApplicationDbContext db, ISiteRegistry
         try
         {
             var app = registry.Find("Demo");
-            var servers = await db.Servers.AsNoTracking().Where(s => s.HostNameOrIp == "deployment-test.vitonta.com").ToListAsync(ct);
-            if (app is null || servers.Count != 1 || app.Destinations.Count(d => d.Matches(servers[0])) != 1)
+            // Resolve the registered WinRM destination independently of the HTTPS
+            // certificate hostname. Keep the original Server for credential binding.
+            var registered = await db.Servers.AsNoTracking().ToListAsync(ct);
+            var matches = app?.Destinations.SelectMany(destination => registered.Where(destination.Matches)).ToList();
+            if (matches is null || matches.Count != 1)
                 return new(Url, "pending", "Unverified: configure one registered Demo TARGET destination");
+            var server = matches[0];
             ct.ThrowIfCancellationRequested();
-            var credential = await credentials.GetAsync(servers[0]);
-            var result = await powerShell.ExecuteAsync(RemoteOperation.VerifyDemoHealth, servers[0], credential);
+            var credential = await credentials.GetAsync(server);
+            var result = await powerShell.ExecuteAsync(RemoteOperation.VerifyDemoHealth, server, credential);
             ct.ThrowIfCancellationRequested();
             if (result.Success && result.Verified && result.HealthHttpStatus == 200)
                 return new(Url, "completed", "TARGET HTTPS GET returned HTTP 200 with valid TLS");

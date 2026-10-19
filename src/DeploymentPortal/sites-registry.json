@@ -61,7 +61,7 @@
         "SourceReference": "",
         "Destinations": [
           {
-            "ServerHostNameOrIp": "deployment-test.vitonta.com",
+            "ServerHostNameOrIp": "192.168.4.12",
             "SiteName": "CdDemo",
             "TargetPath": "C:\\Sites\\CdDemo",
             "ApplicationName": "/",

@@ -54,7 +54,47 @@ public sealed class DemoTargetHealthCheckTests
         Assert.Equal(0, remote.Calls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IpRegisteredTargetUsesSameProtectedServerAndHttpsHostname(bool byId)
+    {
+        using var db = Database();
+        var server = new Server { HostNameOrIp = "192.168.4.12", Username = "protected-user", WinRmPort = 5985, UseSsl = false };
+        db.Servers.Add(server);
+        await db.SaveChangesAsync();
+        var registry = new Registry();
+        var destination = registry.Find("Demo")!.Destinations[0];
+        destination.ServerHostNameOrIp = byId ? null : server.HostNameOrIp;
+        destination.ServerId = byId ? server.Id : 0;
+        var credentials = new Credentials();
+        var remote = new Remote(new(true, "", Verified: true, HealthHttpStatus: 200)) { ExpectedHost = server.HostNameOrIp };
+        var result = await new DemoTargetHealthCheck(db, registry, credentials, remote).Check(default);
+        Assert.Equal("completed", result.State);
+        Assert.Equal("https://deployment-test.vitonta.com/", result.Url);
+        Assert.Equal(server.Id, credentials.Server!.Id);
+        Assert.Equal(server.HostNameOrIp, credentials.Server.HostNameOrIp);
+        Assert.Equal(1, remote.Calls);
+        Assert.Single(await db.Servers.ToListAsync());
+    }
+
     private static ApplicationDbContext Database() => new(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+    [Fact]
+    public async Task DuplicateDestinationMappingsRemainUnverified()
+    {
+        using var db = Database();
+        db.Servers.Add(new Server { HostNameOrIp = "deployment-test.vitonta.com" });
+        await db.SaveChangesAsync();
+        var registry = new Registry();
+        registry.Find("Demo")!.Destinations.Add(new() { ServerHostNameOrIp = "deployment-test.vitonta.com" });
+        var credentials = new Credentials();
+        var remote = new Remote(new(true, "", Verified: true, HealthHttpStatus: 200));
+        var result = await new DemoTargetHealthCheck(db, registry, credentials, remote).Check(default);
+        Assert.Equal("pending", result.State);
+        Assert.Equal(0, credentials.Calls);
+        Assert.Equal(0, remote.Calls);
+    }
+
     private sealed class Registry : ISiteRegistry
     {
         private readonly RegistryApplication app = new() { Key = "Demo", Destinations = [new() { ServerHostNameOrIp = "deployment-test.vitonta.com" }] };
@@ -65,9 +105,11 @@ public sealed class DemoTargetHealthCheckTests
     {
         public int Calls;
         public bool Fail;
+        public Server? Server;
         public Task<RemoteCredential> GetAsync(Server server)
         {
             Calls++;
+            Server = server;
             if (Fail) throw new InvalidOperationException("SECRET");
             return Task.FromResult(new RemoteCredential(server.Username, "SECRET"));
         }
@@ -75,11 +117,12 @@ public sealed class DemoTargetHealthCheckTests
     private sealed class Remote(RemoteResult result) : IPowerShellService
     {
         public int Calls;
+        public string ExpectedHost = "deployment-test.vitonta.com";
         public Task<RemoteResult> ExecuteAsync(RemoteOperation operation, Server server, RemoteCredential credential, Deployment? deployment = null)
         {
             Calls++;
             Assert.Equal(RemoteOperation.VerifyDemoHealth, operation);
-            Assert.Equal("deployment-test.vitonta.com", server.HostNameOrIp);
+            Assert.Equal(ExpectedHost, server.HostNameOrIp);
             Assert.Equal(5985, server.WinRmPort);
             Assert.False(server.UseSsl);
             Assert.Equal(server.Username, credential.Username);

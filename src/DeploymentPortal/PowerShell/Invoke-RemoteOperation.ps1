@@ -5,7 +5,7 @@ $exitCode = 1
 $stage = 'request validation'
 try {
     $request = [Console]::In.ReadLine() | ConvertFrom-Json
-    if ($request.Operation -notin @('TestConnection', 'GetBasicServerInfo', 'PreviewDeployment', 'Deploy', 'StageCd', 'PreviewDeleteSite', 'DeleteSite', 'ListSites')) { throw 'Unsupported operation.' }
+    if ($request.Operation -notin @('TestConnection', 'GetBasicServerInfo', 'PreviewDeployment', 'Deploy', 'StageCd', 'PreviewDeleteSite', 'DeleteSite', 'ListSites', 'VerifyDemoHealth')) { throw 'Unsupported operation.' }
     $stage = 'credential preparation'
     $secure = ConvertTo-SecureString -String $request.Password -AsPlainText -Force
     $credential = New-Object System.Management.Automation.PSCredential($request.Username, $secure)
@@ -18,7 +18,10 @@ try {
     if ($request.UseSsl) { $parameters.UseSSL = $true }
     $stage = 'WinRM session authentication'
     $session = New-PSSession @parameters
-    if ($request.Operation -in @('PreviewDeployment', 'Deploy')) {
+    if ($request.Operation -eq 'VerifyDemoHealth') {
+        $stage = 'Demo HTTPS health verification'
+        $result = Invoke-Command -Session $session -FilePath (Join-Path $PSScriptRoot 'Test-DemoHttpsHealth.ps1')
+    } elseif ($request.Operation -in @('PreviewDeployment', 'Deploy')) {
         $stage = if ($request.Operation -eq 'PreviewDeployment') { 'deployment preview' } else { 'remote deployment' }
         $d = $request.Deployment
         $arguments = @($d.SiteName, $d.ApplicationName, $d.AppPoolName, $d.SourcePath, $d.TargetPath, $d.BackupPath,
@@ -84,7 +87,7 @@ foreach ($file in $Cd.Files) {
     # Only the fixed result contract crosses the process boundary.
     [pscustomobject]@{ Success = [bool]$result.Success; Message = [string]$result.Message; ServerName = [string]$result.ServerName;
         OperatingSystem = [string]$result.OperatingSystem; BackupPath = [string]$result.BackupPath; TotalMemoryBytes = $result.TotalMemoryBytes; StateFingerprint = $result.StateFingerprint; DeploymentMode = $result.DeploymentMode; Sites = @($result.Sites | Where-Object { $null -ne $_ });
-        EffectiveManifestJson = $result.EffectiveManifestJson; ConfigurationManifestJson = $result.ConfigurationManifestJson; ConfigurationDigest = $result.ConfigurationDigest; Verified = [bool]$result.Verified; Verification = $result.Verification } | ConvertTo-Json -Compress -Depth 8
+        EffectiveManifestJson = $result.EffectiveManifestJson; ConfigurationManifestJson = $result.ConfigurationManifestJson; ConfigurationDigest = $result.ConfigurationDigest; Verified = [bool]$result.Verified; Verification = $result.Verification; HealthHttpStatus = $result.HealthHttpStatus } | ConvertTo-Json -Compress -Depth 8
     if ($result.Success) { $exitCode = 0 }
 } catch {
     # Expose only a fixed stage and numeric error code; never raw exception text or request values.

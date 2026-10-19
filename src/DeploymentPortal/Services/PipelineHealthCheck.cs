@@ -6,10 +6,12 @@ public interface IPipelineHealthCheck
     Task<PipelineHealthResult> Check(string applicationKey, CancellationToken ct);
 }
 
-public sealed class PipelineHealthCheck(IConfiguration configuration, IHttpClientFactory clients) : IPipelineHealthCheck
+public sealed class PipelineHealthCheck(IConfiguration configuration, IHttpClientFactory clients, IDemoTargetHealthCheck? demo = null) : IPipelineHealthCheck
 {
     public async Task<PipelineHealthResult> Check(string applicationKey, CancellationToken ct)
     {
+        if (string.Equals(applicationKey, "Demo", StringComparison.OrdinalIgnoreCase))
+            return demo is null ? new("https://deployment-test.vitonta.com/", "pending", "Unverified: TARGET health transport unavailable") : await demo.Check(ct);
         // Only an administrator-configured endpoint is accepted, never a URL supplied by the browser/TFS logs.
         var configured = configuration[$"Pipeline:HealthChecks:{applicationKey}:Url"];
         if (string.IsNullOrWhiteSpace(configured)) return new(null, "pending", "Health endpoint not configured");

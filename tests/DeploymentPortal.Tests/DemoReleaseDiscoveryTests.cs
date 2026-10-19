@@ -100,14 +100,16 @@ public sealed class DemoReleaseDiscoveryTests
         }));
         var log = new CaptureLogger();
         using var fileLog = new CaptureFile();
+        var health = new Health();
         var service = new PipelineService(http, registry, Options.Create(new TfsCdOptions { Enabled = true, ExecutionEnabled = true }),
-            new Users(http), log, new Health(), Options.Create(new PipelineCiOptions()), fileLog);
+            new Users(http), log, health, Options.Create(new PipelineCiOptions()), fileLog);
 
         var state = await service.Status("Demo", 9, 2, 2,
             new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "test")], "Test")), default);
 
         if (failure is not null && failure != "multiple")
         {
+            Assert.Equal(0, health.Calls);
             Assert.Null(state.ReleaseId);
             Assert.Null(state.EnvironmentId);
             Assert.False(state.CanApprove);
@@ -148,6 +150,7 @@ public sealed class DemoReleaseDiscoveryTests
             return;
         }
         Assert.Empty(log.Entries);
+        Assert.Equal(environmentStatus == "succeeded" ? 1 : 0, health.Calls);
         Assert.Empty(fileLog.Entries);
         Assert.Equal(27, state.ReleaseId);
         Assert.Equal(27, state.EnvironmentId);
@@ -216,7 +219,12 @@ public sealed class DemoReleaseDiscoveryTests
     }
     private sealed class Health : IPipelineHealthCheck
     {
-        public Task<PipelineHealthResult> Check(string applicationKey, CancellationToken ct) =>
-            Task.FromResult(new PipelineHealthResult(null, "pending", "Health endpoint not configured"));
+        public int Calls;
+        public Task<PipelineHealthResult> Check(string applicationKey, CancellationToken ct)
+        {
+            Calls++;
+            Assert.Equal("Demo", applicationKey);
+            return Task.FromResult(new PipelineHealthResult(null, "pending", "Health endpoint not configured"));
+        }
     }
 }

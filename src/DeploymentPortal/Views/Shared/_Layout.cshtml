@@ -21,6 +21,7 @@
         <a class="nav-item @(controller is "Tfs" or "TfsReleases" ? "active" : "")" asp-controller="Tfs" asp-action="Index"><partial name="_Icon" model='@("grid")' /> TFS</a>
         @* <a class="nav-item @(controller == "TfsGit" ? "active" : "")" asp-controller="TfsGit" asp-action="Index"><partial name="_Icon" model='@("grid")' /> TFS Git</a> *@
         <a class="nav-item @(controller == "TfsGitBuilds" ? "active" : "")" asp-controller="TfsGitBuilds" asp-action="Index"><partial name="_Icon" model='@("clock")' /> TFS Git CI Builds</a>
+    <a class="nav-item @(controller == "Pipeline" ? "active" : "")" asp-controller="Pipeline" asp-action="Index"><partial name="_Icon" model='@("rocket")' /> CI/CD Pipeline</a>
         <a class="nav-item @(controller == "Home" && action == "Index" ? "active" : "")" asp-controller="Home" asp-action="Index"><partial name="_Icon" model='@("grid")' /> Dashboard</a>
         <a class="nav-item @(controller == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers</a>
         <a class="nav-item @(controller == "Sites" ? "active" : "")" asp-controller="Sites" asp-action="Index"><partial name="_Icon" model='@("server")' /> IIS Sites</a>
@@ -28,7 +29,6 @@
         <a class="nav-item @(controller == "Deployments" && action is "Create" or "Review" ? "active" : "")" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> IIS Deployments</a>
         <a class="nav-item @(controller is "DockerDeployments" or "DockerContainers" ? "active" : "")" asp-controller="DockerDeployments" asp-action="Index"><partial name="_Icon" model='@("container")' /> Docker Deployments</a>
         <a class="nav-item @(controller == "Deployments" && action is "Index" or "Details" ? "active" : "")" asp-controller="Deployments" asp-action="Index"><partial name="_Icon" model='@("clock")' /> Deployment History</a>
-        <a class="nav-item @(controller == "Pipeline" ? "active" : "")" asp-controller="Pipeline" asp-action="Index"><partial name="_Icon" model='@("rocket")' /> CI/CD Pipeline</a>
         <a class="nav-item @(action == "PowerShell" ? "active" : "")" asp-controller="Home" asp-action="PowerShell"><partial name="_Icon" model='@("terminal")' /> PowerShell</a>
         <a class="nav-item @(action == "Settings" ? "active" : "")" asp-controller="Home" asp-action="Settings"><partial name="_Icon" model='@("settings")' /> Settings</a>
     </nav>

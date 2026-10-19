@@ -74,6 +74,7 @@ public static class TfsGitClientConfiguration
             .AddHttpMessageHandler(provider => new PipelineActionGuard(
                 GetBaseAddress(provider.GetRequiredService<IOptions<TfsGitConnectionOptions>>().Value.BaseUrl), personal: false, serviceCd: true));
         services.TryAddScoped<IPipelineHealthCheck, PipelineHealthCheck>();
+        services.TryAddScoped<IDemoTargetHealthCheck, DemoTargetHealthCheck>();
         services.AddHttpClient("PipelineHealth", client => client.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false, UseDefaultCredentials = false });
         return services;

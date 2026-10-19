@@ -4,9 +4,9 @@ using DeploymentPortal.Models;
 using Microsoft.Extensions.Options;
 
 namespace DeploymentPortal.Services;
-public enum RemoteOperation { TestConnection, GetBasicServerInfo, PreviewDeployment, Deploy, PreviewDeleteSite, DeleteSite, ListSites }
+public enum RemoteOperation { TestConnection, GetBasicServerInfo, PreviewDeployment, Deploy, PreviewDeleteSite, DeleteSite, ListSites, VerifyDemoHealth }
 public record RemoteResult(bool Success, string Message, string ServerName = "", string OperatingSystem = "", string? BackupPath = null, long? TotalMemoryBytes = null, string? StateFingerprint = null, string? DeploymentMode = null, IReadOnlyList<IisSite>? Sites = null,
-    string? EffectiveManifestJson = null, string? ConfigurationManifestJson = null, string? ConfigurationDigest = null, bool Verified = false, string? Verification = null);
+    string? EffectiveManifestJson = null, string? ConfigurationManifestJson = null, string? ConfigurationDigest = null, bool Verified = false, string? Verification = null, int? HealthHttpStatus = null);
 public record IisSite(string Name, string State, string Bindings);
 public interface IPowerShellService
 {

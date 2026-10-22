@@ -25,6 +25,7 @@ builder.Services.AddOptions<PipelineCiOptions>().BindConfiguration("Pipeline:Ci"
 // Add services to the container.
 builder.Services.AddControllersWithViews(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
 builder.Services.AddLocalWindowsAuthentication(builder.Environment);
+builder.Services.AddSourcesManagementAuthorization();
 builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddOptions<AutomationOptions>().BindConfiguration("Automation")
     .Validate(x => x.ConnectionTimeoutSeconds is >= 5 and <= 120 && x.DeploymentTimeoutSeconds is >= 60 and <= 3600, "Invalid automation timeouts.").ValidateOnStart();
@@ -36,6 +37,10 @@ else
 builder.Services.AddScoped<IPowerShellService, PowerShellService>();
 builder.Services.AddScoped<IWinRmService, WinRmService>();
 builder.Services.AddScoped<IServerService, ServerService>();
+builder.Services.AddScoped<ISourceCredentialProvider, SourceCredentialProvider>();
+builder.Services.AddScoped<ISourceCredentialMetadata, SourceCredentialProvider>();
+builder.Services.AddScoped<IInfrastructureSourceProbe, InfrastructureSourceProbe>();
+builder.Services.AddScoped<IInfrastructureSourceService, InfrastructureSourceService>();
 builder.Services.AddScoped<IDeploymentService, DeploymentService>();
 builder.Services.AddScoped<SiteDeletionService>();
 builder.Services.AddScoped<IDockerContainerService, DockerContainerService>();

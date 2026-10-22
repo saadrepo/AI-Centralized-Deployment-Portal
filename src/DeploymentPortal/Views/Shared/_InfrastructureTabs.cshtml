@@ -1,0 +1,4 @@
+<nav class="nav nav-tabs mb-4" aria-label="Infrastructure sections">
+    <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index">Servers</a>
+    <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Sources" ? "active" : "")" asp-controller="Sources" asp-action="Index">Sources</a>
+</nav>

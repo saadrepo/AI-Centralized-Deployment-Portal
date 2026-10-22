@@ -5,10 +5,13 @@ namespace DeploymentPortal.Data;
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : DbContext(options)
 {
     public DbSet<Server> Servers => Set<Server>();
+    public DbSet<InfrastructureSource> InfrastructureSources => Set<InfrastructureSource>();
     public DbSet<Deployment> Deployments => Set<Deployment>();
     public DbSet<CdDeploymentSource> CdDeploymentSources => Set<CdDeploymentSource>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<InfrastructureSource>().Property(x => x.Provider).HasConversion<string>().HasMaxLength(20);
+        modelBuilder.Entity<InfrastructureSource>().HasIndex(x => new { x.Provider, x.Destination }).IsUnique();
         modelBuilder.Entity<Server>().Property(x => x.LastConnectionStatus).HasConversion<string>().HasMaxLength(20);
         modelBuilder.Entity<Deployment>().Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         modelBuilder.Entity<Deployment>().Ignore(x => x.Duration);

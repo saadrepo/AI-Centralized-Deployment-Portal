@@ -8,6 +8,7 @@ public class PowerShellCdSecurityTests
     [Theory]
     [InlineData("CdPackageSecurity.Tests.ps1")]
     [InlineData("CdIisWorkflow.Tests.ps1")]
+    [InlineData("../PowerShell.Workflow.Tests.ps1")]
     public async Task FixedScriptsParseAndLocalPreservationRejectsUnsafeUpdates(string scriptName)
     {
         if (!OperatingSystem.IsWindows()) return; // Production automation is Windows-only.
@@ -25,12 +26,32 @@ public class PowerShellCdSecurityTests
             var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
-            Assert.True(process.ExitCode == 0, (await output) + (await errors));
+            var stdout = await output;
+            Assert.True(process.ExitCode == 0, stdout + (await errors));
+            if (scriptName == "CdIisWorkflow.Tests.ps1")
+                Assert.Equal(9, System.Text.RegularExpressions.Regex.Matches(stdout, "(?m)^PASS:").Count);
+            if (scriptName == "../PowerShell.Workflow.Tests.ps1")
+                Assert.Equal(11, System.Text.RegularExpressions.Regex.Matches(stdout, "(?m)^PASS:").Count);
         }
         finally
         {
             if (!Path.GetFullPath(root).StartsWith(fixtures + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Fixture cleanup escaped its root.");
+            // Unlink junctions before deleting their targets. Never recurse into a reparse point.
+            RemoveFixtureLinks(new DirectoryInfo(root));
             Directory.Delete(root, true);
+        }
+    }
+
+    private static void RemoveFixtureLinks(DirectoryInfo directory)
+    {
+        foreach (var item in directory.EnumerateFileSystemInfos())
+        {
+            if ((item.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if ((item.Attributes & FileAttributes.Directory) != 0) Directory.Delete(item.FullName);
+                else File.Delete(item.FullName);
+            }
+            else if (item is DirectoryInfo child) RemoveFixtureLinks(child);
         }
     }
 }

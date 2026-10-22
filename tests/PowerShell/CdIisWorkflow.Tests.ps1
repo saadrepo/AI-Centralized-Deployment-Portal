@@ -1,8 +1,8 @@
 param([string]$Root, [string]$Scripts)
 $ErrorActionPreference = 'Stop'
-# Reuse the established IIS mocks and run all original manual filesystem scenarios first.
+# Reuse the established IIS mocks. Manual scenarios run as a separate test case.
 # No WinRM session, credentials or real IIS provider is used anywhere in this test.
-. (Join-Path (Split-Path $PSScriptRoot -Parent) 'PowerShell.Workflow.Tests.ps1')
+. (Join-Path $PSScriptRoot 'IisWorkflowFixture.ps1') -FixtureRoot $Root
 . (Join-Path $Scripts 'CdPackageSecurity.ps1')
 $helpers = [IO.File]::ReadAllText((Join-Path $Scripts 'CdPackageSecurity.ps1'))
 # ACL enforcement is independently checked by security policy tests; these fixtures inherit

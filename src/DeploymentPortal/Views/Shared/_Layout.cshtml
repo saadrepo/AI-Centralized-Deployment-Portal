@@ -23,7 +23,8 @@
         <a class="nav-item @(controller == "TfsGitBuilds" ? "active" : "")" asp-controller="TfsGitBuilds" asp-action="Index"><partial name="_Icon" model='@("clock")' /> TFS Git CI Builds</a>
     <a class="nav-item @(controller == "Pipeline" ? "active" : "")" asp-controller="Pipeline" asp-action="Index"><partial name="_Icon" model='@("rocket")' /> CI/CD Pipeline</a>
         <a class="nav-item @(controller == "Home" && action == "Index" ? "active" : "")" asp-controller="Home" asp-action="Index"><partial name="_Icon" model='@("grid")' /> Dashboard</a>
-        <a class="nav-item @(controller == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers</a>
+        @* <a class="nav-item @(controller == "Servers" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers</a>*@
+        <a class="nav-item @(controller is "Servers" or "Sources" ? "active" : "")" asp-controller="Servers" asp-action="Index"><partial name="_Icon" model='@("server")' /> Servers and Sources</a>
         <a class="nav-item @(controller == "Sites" ? "active" : "")" asp-controller="Sites" asp-action="Index"><partial name="_Icon" model='@("server")' /> IIS Sites</a>
         <a class="nav-item @(controller == "SiteRegistry" ? "active" : "")" asp-controller="SiteRegistry" asp-action="Index"><partial name="_Icon" model='@("grid")' /> Sites Registry</a>
         <a class="nav-item @(controller == "Deployments" && action is "Create" or "Review" ? "active" : "")" asp-controller="Deployments" asp-action="Create"><partial name="_Icon" model='@("rocket")' /> IIS Deployments</a>

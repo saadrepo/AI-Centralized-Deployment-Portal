@@ -9,6 +9,7 @@ public class PowerShellCredentialProvisioningTests
     [InlineData("WinRmCredentialProvisioning.Tests.ps1")]
     [InlineData("TfsCredentialProvisioning.Tests.ps1")]
     [InlineData("PortalStorage.Tests.ps1")]
+    [InlineData("SourceCredentialProvisioning.Tests.ps1")]
     public async Task ProvisioningUsesPrivateAclAndRotatesSyntheticCiphertext(string script)
     {
         if (!OperatingSystem.IsWindows()) return;

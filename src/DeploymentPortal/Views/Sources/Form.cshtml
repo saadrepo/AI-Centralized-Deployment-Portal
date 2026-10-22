@@ -1,0 +1,22 @@
+@model DeploymentPortal.ViewModels.SourceForm
+@{ ViewData["Title"] = Model.Id == 0 ? "Add source" : "Edit source"; }
+<partial name="_InfrastructureTabs" />
+<div class="page-heading"><div><a class="back-link" asp-action="Index">Sources</a><h1>@ViewData["Title"]</h1><p>Use an approved collection or a host-provisioned organization credential.</p></div></div>
+<section class="panel"><div class="panel-heading"><h2>Source connection</h2></div>
+<form asp-action="@(Model.Id == 0 ? "Create" : "Edit")" asp-route-id="@Model.Id" method="post" class="form-body" data-busy>
+<input asp-for="Id" type="hidden" /><div asp-validation-summary="All" class="text-danger" role="alert"></div>
+@if (ViewData["CredentialWarning"] is string warning) { <div class="alert alert-warning" role="status">@warning</div> }
+<div class="row g-4">
+<div class="col-md-6"><label asp-for="DisplayName"></label><input asp-for="DisplayName" class="form-control" /><span asp-validation-for="DisplayName"></span></div>
+<div class="col-md-6"><label asp-for="Provider"></label><select asp-for="Provider" class="form-select"><option value="Tfs2018">TFS 2018</option><option value="AzureDevOps">Azure DevOps</option><option value="GitHub">GitHub</option></select><span asp-validation-for="Provider"></span></div>
+<div class="col-12"><label asp-for="Destination"></label><input asp-for="Destination" class="form-control" list="source-destinations" placeholder="Select or enter the exact approved organization URL" /><span asp-validation-for="Destination"></span>
+<datalist id="source-destinations">@foreach (var source in Model.Configured) { <option value="@source.Destination">@source.Name</option> } @foreach (var credential in Model.Credentials) { <option value="@credential.Destination">@credential.Provider</option> }</datalist>
+<p class="form-text">TFS: choose a configured collection below. Azure DevOps: https://dev.azure.com/organization/. GitHub: https://api.github.com/orgs/organization/.</p></div>
+<div class="col-12"><label asp-for="CredentialReference"></label><select asp-for="CredentialReference" class="form-select"><option value="">TFS: existing protected Windows credentials</option>
+@foreach (var credential in Model.Credentials) { <option value="@credential.Reference">@credential.Provider · @credential.Destination · @credential.Reference</option> }
+</select><span asp-validation-for="CredentialReference"></span><p class="form-text">Cloud credentials must match the selected provider and organization. A host administrator provisions and rotates tokens; tokens cannot be entered here.</p></div>
+<div class="col-12 form-check form-switch"><input asp-for="Enabled" class="form-check-input" /><label asp-for="Enabled" class="form-check-label"></label></div>
+</div>
+<div class="form-actions"><a class="btn btn-light" asp-action="Index">Cancel</a><button class="btn btn-primary" type="submit">Save source</button></div>
+</form></section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

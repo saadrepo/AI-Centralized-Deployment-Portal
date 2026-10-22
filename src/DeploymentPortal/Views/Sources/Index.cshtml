@@ -1,0 +1,21 @@
+@model DeploymentPortal.ViewModels.SourcesPage
+@{ ViewData["Title"] = "Sources"; }
+<partial name="_InfrastructureTabs" />
+<div class="page-heading"><div><div class="eyebrow">INFRASTRUCTURE</div><h1>Sources <span class="count-pill">@Model.Sources.Count</span></h1><p>Register source connections and verify read-only API access.</p></div><a class="btn btn-primary" asp-action="Create">Add source</a></div>
+<section class="panel"><div class="panel-heading"><h2>Registered sources</h2></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name / organization</th><th>Provider</th><th>Enabled</th><th>Connection</th><th>Last checked (UTC)</th><th>Actions</th></tr></thead><tbody>
+@foreach (var source in Model.Sources) {
+    <tr><td><strong>@source.DisplayName</strong><small class="cell-subtitle">@source.Destination</small></td><td>@(source.Provider == DeploymentPortal.Models.InfrastructureSourceProvider.Tfs2018 ? "TFS 2018" : source.Provider == DeploymentPortal.Models.InfrastructureSourceProvider.AzureDevOps ? "Azure DevOps" : "GitHub")</td><td>@(source.Enabled ? "Enabled" : "Disabled")</td><td>@source.ConnectionStatus<small class="cell-subtitle">@source.ConnectionMessage</small></td><td>@(source.LastCheckedAt?.ToString("dd MMM yyyy HH:mm") ?? "Never checked")</td><td><div class="table-actions">
+    <a asp-action="Edit" asp-route-id="@source.Id">Edit</a>
+    <form asp-action="SetEnabled" asp-route-id="@source.Id" method="post"><input type="hidden" name="enabled" value="@(!source.Enabled ? "true" : "false")" /><button class="btn-link" type="submit">@(source.Enabled ? "Disable" : "Enable")</button></form>
+    @if (source.Enabled) { <form asp-action="TestConnection" asp-route-id="@source.Id" method="post" data-busy><button class="btn-link" type="submit">Test connection</button></form> }
+    <form asp-action="Delete" asp-route-id="@source.Id" method="post" onsubmit="return confirm('Delete this source registration? Host credentials and configured connections will remain.');"><button class="btn-link text-danger" type="submit">Delete</button></form>
+    </div></td></tr>
+}
+</tbody></table></div>
+@if (Model.Sources.Count == 0) { <div class="empty-state"><h3>No registered sources</h3><p>Add a configured TFS collection or an organization with host-provisioned credentials.</p><a class="btn btn-primary" asp-action="Create">Add source</a></div> }
+</section>
+@if (Model.Configured.Count > 0) {
+    <section class="panel mt-4"><div class="panel-heading"><h2>Configured TFS connections</h2></div><div class="form-body"><p>These existing connections remain managed by host configuration. Add a registration to track its status here.</p>
+    @foreach (var source in Model.Configured) { <p><strong>@source.Name</strong><br />@source.Destination <span class="environment">Windows authentication / Not tested here</span></p> }
+    </div></section>
+}

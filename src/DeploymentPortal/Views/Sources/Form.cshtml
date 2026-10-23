@@ -1,7 +1,7 @@
 @model DeploymentPortal.ViewModels.SourceForm
 @{ ViewData["Title"] = Model.Id == 0 ? "Add source" : "Edit source"; }
 <partial name="_InfrastructureTabs" />
-<div class="page-heading"><div><a class="back-link" asp-action="Index">Sources</a><h1>@ViewData["Title"]</h1><p>Use an approved collection or a host-provisioned organization credential.</p></div></div>
+<div class="page-heading"><div><a class="back-link" asp-action="Index">Sources</a><h1>@ViewData["Title"]</h1><p>Use an approved collection or a host-provisioned account credential.</p></div></div>
 <section class="panel"><div class="panel-heading"><h2>Source connection</h2></div>
 <form asp-action="@(Model.Id == 0 ? "Create" : "Edit")" asp-route-id="@Model.Id" method="post" class="form-body" data-busy>
 <input asp-for="Id" type="hidden" /><div asp-validation-summary="All" class="text-danger" role="alert"></div>
@@ -9,12 +9,13 @@
 <div class="row g-4">
 <div class="col-md-6"><label asp-for="DisplayName"></label><input asp-for="DisplayName" class="form-control" /><span asp-validation-for="DisplayName"></span></div>
 <div class="col-md-6"><label asp-for="Provider"></label><select asp-for="Provider" class="form-select"><option value="Tfs2018">TFS 2018</option><option value="AzureDevOps">Azure DevOps</option><option value="GitHub">GitHub</option></select><span asp-validation-for="Provider"></span></div>
-<div class="col-12"><label asp-for="Destination"></label><input asp-for="Destination" class="form-control" list="source-destinations" placeholder="Select or enter the exact approved organization URL" /><span asp-validation-for="Destination"></span>
+<div class="col-12"><label asp-for="Destination"></label><input asp-for="Destination" class="form-control" list="source-destinations" placeholder="GitHub username/profile URL or approved collection/organization URL" aria-describedby="github-account-status" data-detection-url="@Url.Action("ResolveGitHubAccount")" /><span asp-validation-for="Destination"></span>
+<p id="github-account-status" class="form-text" role="status" aria-live="polite"></p>
 <datalist id="source-destinations">@foreach (var source in Model.Configured) { <option value="@source.Destination">@source.Name</option> } @foreach (var credential in Model.Credentials) { <option value="@credential.Destination">@credential.Provider</option> }</datalist>
-<p class="form-text">TFS: choose a configured collection below. Azure DevOps: https://dev.azure.com/organization/. GitHub: https://api.github.com/orgs/organization/.</p></div>
+<p class="form-text">TFS: choose a configured collection below. Azure DevOps: https://dev.azure.com/organization/. GitHub: enter a username, profile URL, or account API URL; the account type and destination are detected automatically.</p></div>
 <div class="col-12"><div class="d-flex align-items-center gap-3 flex-wrap"><label asp-for="CredentialReference"></label><a href="#credential-provisioning" data-bs-toggle="modal" aria-controls="credential-provisioning">Credentials Provisioning</a></div><select asp-for="CredentialReference" class="form-select"><option value="">TFS: existing protected Windows credentials</option>
 @foreach (var credential in Model.Credentials) { <option value="@credential.Reference">@credential.Provider · @credential.Destination · @credential.Reference</option> }
-</select><span asp-validation-for="CredentialReference"></span><p class="form-text">Cloud credentials must match the selected provider and organization. A host administrator provisions and rotates tokens; tokens cannot be entered here.</p>
+</select><span asp-validation-for="CredentialReference"></span><p class="form-text">Cloud credentials must match the selected provider and exact account destination. A host administrator provisions and rotates tokens; tokens cannot be entered here.</p>
 <button type="button" class="btn btn-outline-secondary" id="refresh-credentials" data-url="@Url.Action("Credentials")">Refresh Credentials</button>
 <p id="credential-refresh-status" class="form-text" role="status" aria-live="polite"></p></div>
 <div class="col-12 form-check form-switch"><input asp-for="Enabled" class="form-check-input" /><label asp-for="Enabled" class="form-check-label"></label></div>
@@ -27,13 +28,13 @@
 <div class="modal-body">
 <p>An administrator must run this command manually in elevated Windows PowerShell 5.1 on the <strong>SOURCE server hosting the portal</strong>. The browser does not launch PowerShell or provision credentials.</p>
 <ol><li>An administrator-approved copy of <code>tools\Manage-SourceCredential.ps1</code> must be installed on SOURCE at <code>C:\AdminTools\DeploymentPortal\Manage-SourceCredential.ps1</code>. The command uses that absolute path and can run from any working directory.</li>
-<li>Confirm the selected provider and organization URL. The command below uses the default IIS application pool name <code>DeploymentPortal</code>; if SOURCE uses a different pool, the administrator must replace that argument with its actual name.</li>
+<li>Confirm the selected provider and detected account URL. The command below uses the default IIS application pool name <code>DeploymentPortal</code>; if SOURCE uses a different pool, the administrator must replace that argument with its actual name.</li>
 <li>Run the command and enter the PAT only at the script's hidden secure prompt. Do not add the PAT to the command. The existing script encrypts the credential with DPAPI and returns a credential reference.</li>
 <li>Close this help, choose <strong>Refresh Credentials</strong>, and select the returned reference. Refresh reads credentials on the host serving this portal; a LOCAL portal cannot list SOURCE's store.</li></ol>
 <p id="provisioning-command-status" role="status" aria-live="polite"></p>
 <pre class="border rounded p-3 text-wrap"><code id="provisioning-command"></code></pre>
 <button type="button" class="btn btn-outline-primary" id="copy-provisioning-command" disabled>Copy PowerShell Command</button>
-<p class="form-text">TFS uses its existing configured Windows connections and does not require this PAT provisioning command. GitHub supports the existing organization URL format only.</p>
+<p class="form-text">TFS uses its existing configured Windows connections and does not require this PAT provisioning command. GitHub account detection selects the user or organization destination. A credential bound to another destination cannot be reused; an administrator must provision a new reference for the detected destination.</p>
 </div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
 </div></div></div>
 @section Scripts { <partial name="_ValidationScriptsPartial" /><script src="~/js/source-credentials.js" asp-append-version="true"></script> }

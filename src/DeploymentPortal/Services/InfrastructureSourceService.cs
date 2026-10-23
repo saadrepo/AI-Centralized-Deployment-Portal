@@ -24,7 +24,7 @@ public interface IInfrastructureSourceService
 }
 
 public sealed class InfrastructureSourceService(ApplicationDbContext db, IConfiguration configuration,
-    ISourceCredentialMetadata metadata, IInfrastructureSourceProbe probe) : IInfrastructureSourceService
+    ISourceCredentialMetadata metadata, IInfrastructureSourceProbe probe, IGitHubAccountDetector github) : IInfrastructureSourceService
 {
     public IReadOnlyList<ConfiguredSource> Configured()
     {
@@ -45,7 +45,7 @@ public sealed class InfrastructureSourceService(ApplicationDbContext db, IConfig
     }
     public Task<InfrastructureSource?> FindAsync(int id) => db.InfrastructureSources.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id);
 
-    private string Validate(SourceForm form)
+    private async Task<string> ValidateAsync(SourceForm form, CancellationToken cancellationToken = default)
     {
         Validator.ValidateObject(form, new(form), true);
         if (string.IsNullOrWhiteSpace(form.DisplayName) || form.DisplayName.Any(char.IsControl)) throw new ArgumentException("Enter a display name without control characters.");
@@ -58,9 +58,14 @@ public sealed class InfrastructureSourceService(ApplicationDbContext db, IConfig
         }
         try {
             var provider = TokenProvider(form.Provider);
-            var destination = SourceCredentialProvider.CanonicalDestination(provider, form.Destination);
+            var destination = provider == SourceTokenProvider.GitHub
+                ? (await github.DetectAsync(form.Destination, cancellationToken)).Destination
+                : SourceCredentialProvider.CanonicalDestination(provider, form.Destination);
+            if (provider == SourceTokenProvider.GitHub) form.Destination = destination;
             if (!metadata.List().Any(c => c.Reference == form.CredentialReference && c.Provider == provider && c.Destination == destination))
-                throw new ArgumentException("Select a provisioned credential reference matching this provider and organization URL.");
+                throw new ArgumentException(provider == SourceTokenProvider.GitHub
+                    ? "Select a provisioned credential reference matching this provider and exact account destination. Credentials bound to /orgs/ cannot be reused for /users/; ask an administrator to provision a new reference."
+                    : "Select a provisioned credential reference matching this provider and organization URL.");
             return destination;
         }
         catch (InvalidOperationException) { throw new ArgumentException("The provider URL or secure credential store is unavailable. Verify the organization URL and ask a host administrator to provision its credential."); }
@@ -72,7 +77,7 @@ public sealed class InfrastructureSourceService(ApplicationDbContext db, IConfig
     };
     public async Task SaveAsync(SourceForm form)
     {
-        var destination = Validate(form);
+        var destination = await ValidateAsync(form);
         if (await db.InfrastructureSources.AnyAsync(s => s.Id != form.Id && s.Provider == form.Provider && s.Destination == destination)) throw new ArgumentException("This provider and organization/collection are already registered.");
         var source = form.Id == 0 ? new InfrastructureSource() : await db.InfrastructureSources.FindAsync(form.Id) ?? throw new ArgumentException("Source no longer exists.");
         if (form.Id == 0) db.InfrastructureSources.Add(source);
@@ -101,13 +106,18 @@ public sealed class InfrastructureSourceService(ApplicationDbContext db, IConfig
         if (!source.Enabled) throw new ArgumentException("Enable the source before testing its connection.");
         var success = false;
         try {
-            Validate(SourceForm.From(source)); // Recheck configuration/credential metadata even for existing database records.
+            var destination = await ValidateAsync(SourceForm.From(source), cancellationToken);
+            // Testing must never retarget an existing registration or reinterpret its credential binding.
+            if (source.Provider == InfrastructureSourceProvider.GitHub && destination != source.Destination)
+                throw new ArgumentException("The detected destination differs from this registration.");
             success = await probe.TestAsync(source, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex) when (ex is ArgumentException or ValidationException or InvalidOperationException or HttpRequestException or OperationCanceledException or IOException) { }
         source.ConnectionStatus = success ? "Connected" : "Failed";
         source.ConnectionMessage = success ? "Read-only API request succeeded." : "Connection could not be verified. Check provider access, approved URL and host-provisioned credentials.";
+        if (!success && source.Provider == InfrastructureSourceProvider.GitHub)
+            source.ConnectionMessage = "GitHub connection failed. Verify account detection, exact credential binding and token access; 401/403/404, rate limits or network errors require review before retrying.";
         source.LastCheckedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken); return true;
     }

@@ -52,7 +52,7 @@ try {
     }
     function Canonical([string]$Kind,[string]$Url) {
         if ($Kind -ceq 'AzureDevOps') { $pattern = '\Ahttps://dev\.azure\.com/([A-Za-z0-9][A-Za-z0-9-]{0,99})/?\z' }
-        elseif ($Kind -ceq 'GitHub') { $pattern = '\Ahttps://api\.github\.com/orgs/([A-Za-z0-9][A-Za-z0-9-]{0,38})/?\z' }
+        elseif ($Kind -ceq 'GitHub') { $pattern = '\Ahttps://api\.github\.com/(?:users|orgs)/([A-Za-z0-9][A-Za-z0-9-]{0,38})/?\z' }
         else { throw 'Invalid provider.' }
         if ($Url -notmatch $pattern) { throw 'Invalid organization URL.' }
         return $Url.TrimEnd('/').ToLowerInvariant() + '/'

@@ -7,6 +7,7 @@ Examples (tokens are entered only at the hidden interactive prompt):
 ```powershell
 .\Manage-SourceCredential.ps1 -Action Provision -Provider AzureDevOps -Destination https://dev.azure.com/example/ -AppPoolName DeploymentPortal
 .\Manage-SourceCredential.ps1 -Action Provision -Provider GitHub -Destination https://api.github.com/orgs/example/ -AppPoolName DeploymentPortal
+.\Manage-SourceCredential.ps1 -Action Provision -Provider GitHub -Destination https://api.github.com/users/example/ -AppPoolName DeploymentPortal
 .\Manage-SourceCredential.ps1 -Action List -AppPoolName DeploymentPortal
 .\Manage-SourceCredential.ps1 -Action Rotate -Reference <64-character-reference> -Provider GitHub -Destination https://api.github.com/orgs/example/ -AppPoolName DeploymentPortal
 .\Manage-SourceCredential.ps1 -Action Revoke -Reference <64-character-reference> -AppPoolName DeploymentPortal
@@ -18,7 +19,11 @@ Records reside in `%ProgramData%\DeploymentPortal\SourceCredentials`, outside th
 
 The backend `ISourceCredentialProvider` resolves fresh ciphertext on every call, validates ACLs and binding, and performs only GET requests within the bound organization. It uses direct HTTPS with certificate validation, no proxy/default Windows credentials, no redirects, and no HttpClientFactory request logging. It returns only an HTTP status response; remote headers and bodies are discarded to prevent reflected-secret exposure. It never returns tokens or an authenticated client. No UI, database schema or CI/CD integration is added here; existing TFS Windows credentials remain separate.
 
-Supported destinations are exactly `https://dev.azure.com/{organization}/` and `https://api.github.com/orgs/{organization}/`. GitHub Enterprise, legacy Azure URLs, personal GitHub accounts and unrelated API paths require separate reviewed support. Organization names are canonicalized to lowercase. References and destinations can be stored in future Source records; secrets cannot.
+Supported destinations are exactly `https://dev.azure.com/{organization}/`, `https://api.github.com/orgs/{organization}/` and `https://api.github.com/users/{username}/`. GitHub Enterprise, legacy Azure URLs and unrelated API paths remain unsupported. Account names are canonicalized to lowercase. References and destinations can be stored in Source records; secrets cannot. GitHub credential transport permits only the exact bound account endpoint (with or without its trailing slash), without queries or child paths; Azure DevOps retains its existing organization-scoped GET behavior.
+
+The portal automatically detects GitHub account type using the public GitHub API before generating a command or saving a source. This host-only tool accepts the resulting canonical URL; it does not detect accounts or reinterpret existing bindings. A credential for `/orgs/name/` cannot be reused or rotated into `/users/name/`. Provision a new reference for the correct destination and explicitly select it in the portal. Existing organization credentials retain the same ciphertext format and entropy binding.
+
+After a separately approved deployment, the SOURCE administrator must update the approved script at `C:\AdminTools\DeploymentPortal\Manage-SourceCredential.ps1` to this version before provisioning `/users/` credentials. For the previously incorrect `/orgs/saadrepo/` destination, manually provision the PAT against `/users/saadrepo/` at the hidden prompt and select the newly generated reference. Do not migrate, rotate, delete or reinterpret the old reference automatically. This LOCAL change does not install scripts or change credentials on SOURCE.
 
 DPAPI persists across application/pool restarts on the same Windows host and does not depend on the portal Data Protection key ring. Do not copy these files to another machine expecting them to decrypt: reprovision on host replacement. No credential cache exists; rotation/revocation takes effect on the next request. An already-started request cannot be recalled. Local administrators/SYSTEM and trusted code running as the pool are inside this security boundary.
 

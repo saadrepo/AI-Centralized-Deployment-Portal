@@ -34,6 +34,25 @@ public class SourceCredentialTests
     public void RequestsCannotEscapeOrganization(string url) => Assert.False(SourceCredentialProvider.AllowsRequest(SourceTokenProvider.AzureDevOps, Destination, new Uri(url)));
 
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void GitHubUserAndOrganizationBindingsAreDistinctAndRequestsStayOnExactAccountEndpoint()
+    {
+        var user = "https://api.github.com/users/saadrepo/";
+        var organization = "https://api.github.com/orgs/saadrepo/";
+        Assert.NotEqual(SourceCredentialProvider.Binding(Reference, SourceTokenProvider.GitHub, user), SourceCredentialProvider.Binding(Reference, SourceTokenProvider.GitHub, organization));
+        foreach (var destination in new[] { user, organization }) {
+            Assert.True(SourceCredentialProvider.AllowsRequest(SourceTokenProvider.GitHub, destination, new Uri(destination)));
+            Assert.True(SourceCredentialProvider.AllowsRequest(SourceTokenProvider.GitHub, destination, new Uri(destination.TrimEnd('/'))));
+            foreach (var request in new[] { destination + "repos", destination + "?x=1", "https://api.github.com/users/other/", "https://evil.example/users/saadrepo/" })
+                Assert.False(SourceCredentialProvider.AllowsRequest(SourceTokenProvider.GitHub, destination, new Uri(request)));
+        }
+        if (OperatingSystem.IsWindows()) {
+            var encrypted = ProtectedData.Protect(Encoding.ASCII.GetBytes("synthetic-only"), SourceCredentialProvider.Binding(Reference, SourceTokenProvider.GitHub, organization), DataProtectionScope.LocalMachine);
+            Assert.Throws<CryptographicException>(() => ProtectedData.Unprotect(encrypted, SourceCredentialProvider.Binding(Reference, SourceTokenProvider.GitHub, user), DataProtectionScope.LocalMachine));
+        }
+    }
+
+    [Fact]
     public void AllowedRequestsAndHandlerStayReadOnlyAndDoNotRedirect()
     {
         Assert.True(SourceCredentialProvider.AllowsRequest(SourceTokenProvider.AzureDevOps, Destination, new Uri(Destination + "_apis/projects?api-version=7.1")));

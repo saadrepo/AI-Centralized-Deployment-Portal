@@ -39,6 +39,8 @@ builder.Services.AddScoped<IWinRmService, WinRmService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<ISourceCredentialProvider, SourceCredentialProvider>();
 builder.Services.AddScoped<ISourceCredentialMetadata, SourceCredentialProvider>();
+builder.Services.AddSingleton<IGitHubAccountDetector>(_ => new GitHubAccountDetector(
+    new HttpClient(SourceCredentialProvider.CreateHandler()) { Timeout = TimeSpan.FromSeconds(10) }));
 builder.Services.AddScoped<IInfrastructureSourceProbe, InfrastructureSourceProbe>();
 builder.Services.AddScoped<IInfrastructureSourceService, InfrastructureSourceService>();
 builder.Services.AddScoped<IDeploymentService, DeploymentService>();

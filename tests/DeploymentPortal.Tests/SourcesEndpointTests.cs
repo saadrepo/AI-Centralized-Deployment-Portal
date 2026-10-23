@@ -29,6 +29,7 @@ public sealed class SourcesEndpointTests
     [InlineData("GET", "/Sources/Edit/1")]
     [InlineData("GET", "/Sources/Credentials")]
     [InlineData("GET", "/Sources/ProvisioningCommand")]
+    [InlineData("GET", "/Sources/ResolveGitHubAccount")]
     [InlineData("POST", "/Sources/Create")]
     [InlineData("POST", "/Sources/Edit/1")]
     [InlineData("POST", "/Sources/SetEnabled/1")]
@@ -53,6 +54,7 @@ public sealed class SourcesEndpointTests
         await using var app = Host(service, forged);
         await app.StartAsync(); using var client = Client(app);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/Sources/Credentials")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/Sources/ResolveGitHubAccount?destination=saadrepo")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/Sources/ProvisioningCommand?provider=GitHub&destination=https://api.github.com/orgs/example/")).StatusCode);
         Assert.Equal(0, service.Calls); await app.StopAsync();
     }
@@ -109,6 +111,9 @@ public sealed class SourcesEndpointTests
         await app.StartAsync(); using var client = Client(app);
         foreach (var (provider, destination, canonical) in new[] {
             ("GitHub", "https://API.GITHUB.COM/orgs/Example", "https://api.github.com/orgs/example/"),
+            ("GitHub", "saadrepo", "https://api.github.com/users/saadrepo/"),
+            ("GitHub", "https://github.com/saadrepo", "https://api.github.com/users/saadrepo/"),
+            ("GitHub", "https://api.github.com/orgs/saadrepo/", "https://api.github.com/users/saadrepo/"),
             ("AzureDevOps", "https://dev.azure.com/Example/", "https://dev.azure.com/example/") }) {
             using var response = await client.GetAsync($"/Sources/ProvisioningCommand?provider={provider}&destination={Uri.EscapeDataString(destination)}");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -120,13 +125,52 @@ public sealed class SourcesEndpointTests
         }
         foreach (var (provider, destination) in new[] {
             ("Tfs2018", "http://netserver:8080/tfs/DefaultCollection/"), ("1", "https://api.github.com/orgs/example/"),
-            ("GitHub", "https://api.github.com/users/example/"), ("GitHub", "https://api.github.com/orgs/example/'; whoami; #"),
+            ("GitHub", "https://api.github.com/orgs/example/'; whoami; #"),
             ("GitHub", "https://api.github.com/orgs/example/?x=1"), ("GitHub", "https://api.github.com/orgs/example/\n"),
-            ("GitHub", "https://github.com/example/"), ("GitHub", "https://dev.azure.com/example/"),
+            ("GitHub", "https://dev.azure.com/example/"),
             ("AzureDevOps", "https://api.github.com/orgs/example/"), ("GitHub", ""), ("GitHub", new string('x', 401)) }) {
             using var response = await client.GetAsync($"/Sources/ProvisioningCommand?provider={provider}&destination={Uri.EscapeDataString(destination)}");
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             Assert.DoesNotContain("Manage-SourceCredential.ps1", await response.Content.ReadAsStringAsync());
+        }
+        Assert.Equal(0, service.Calls);
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task AccountResolutionReturnsCanonicalUserAndOrganizationWithoutCredentialAccess()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent(); var service = new FakeSources();
+        await using var app = Host(service, new WindowsPrincipal(identity));
+        await app.StartAsync(); using var client = Client(app);
+        foreach (var (input, type, segment) in new[] { ("saadrepo", "User", "users"), ("https://github.com/example", "Organization", "orgs") }) {
+            using var response = await client.GetAsync("/Sources/ResolveGitHubAccount?destination=" + Uri.EscapeDataString(input));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.Headers.CacheControl!.NoStore);
+            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(type, json.RootElement.GetProperty("type").GetString());
+            Assert.Contains($"/{segment}/", json.RootElement.GetProperty("destination").GetString());
+        }
+        Assert.Equal(0, service.Calls);
+        await app.StopAsync();
+    }
+
+    [Theory]
+    [InlineData(401)] [InlineData(403)] [InlineData(404)] [InlineData(429)] [InlineData(500)]
+    public async Task DetectionFailureCannotGenerateProvisioningCommand(int status)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent(); var service = new FakeSources();
+        using var detector = new GitHubAccountDetector(new HttpClient(new GitHubAccountDetectorTests.Handler(_ => new((HttpStatusCode)status))));
+        await using var app = Host(service, new WindowsPrincipal(identity), detector);
+        await app.StartAsync(); using var client = Client(app);
+        foreach (var endpoint in new[] { "/Sources/ResolveGitHubAccount?", "/Sources/ProvisioningCommand?provider=GitHub&" }) {
+            using var response = await client.GetAsync(endpoint + "destination=saadrepo");
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Contains("error", body); Assert.DoesNotContain("Manage-SourceCredential.ps1", body);
+            Assert.DoesNotContain("https://api.github.com/users/", body);
         }
         Assert.Equal(0, service.Calls);
         await app.StopAsync();
@@ -145,7 +189,7 @@ public sealed class SourcesEndpointTests
         }
     }
 
-    private static WebApplication Host(FakeSources sources, ClaimsPrincipal? principal = null)
+    private static WebApplication Host(FakeSources sources, ClaimsPrincipal? principal = null, IGitHubAccountDetector? detector = null)
     {
         var repo = new DirectoryInfo(AppContext.BaseDirectory);
         while (repo is not null && !Directory.Exists(Path.Combine(repo.FullName,"src","DeploymentPortal","Views"))) repo = repo.Parent;
@@ -160,6 +204,7 @@ public sealed class SourcesEndpointTests
         builder.Services.Configure<SourcesManagementOptions>(o => o.AllowedUserSids = OperatingSystem.IsWindows() && principal?.Identity is WindowsIdentity windows ? [windows.User!.Value] : ["S-1-5-21-1-2-3-1001"]);
         builder.Services.AddAuthentication().AddScheme<SourcesManagementAuthorizationTests.NativeOptions, SourcesManagementAuthorizationTests.NativeHandler>(IISDefaults.AuthenticationScheme, o => o.Principal = principal);
         builder.Services.AddSingleton<IInfrastructureSourceService>(sources);
+        builder.Services.AddSingleton<IGitHubAccountDetector>(_ => detector ?? GitHubAccountDetectorTests.Detector());
         var app = builder.Build(); app.UseRouting(); app.UseAuthorization();
         app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
         app.MapGet("/test-token", (HttpContext context, IAntiforgery antiforgery) => antiforgery.GetAndStoreTokens(context).RequestToken!).RequireAuthorization(SourcesManagementAuthorization.Policy);

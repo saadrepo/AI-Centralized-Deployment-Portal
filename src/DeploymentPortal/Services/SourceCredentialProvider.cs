@@ -72,7 +72,7 @@ public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISo
         // Deliberately support only the public cloud endpoints, with an explicit organization.
         var pattern = provider switch {
             SourceTokenProvider.AzureDevOps => @"\Ahttps://dev\.azure\.com/([A-Za-z0-9][A-Za-z0-9-]{0,99})/?\z",
-            SourceTokenProvider.GitHub => @"\Ahttps://api\.github\.com/orgs/([A-Za-z0-9][A-Za-z0-9-]{0,38})/?\z",
+            SourceTokenProvider.GitHub => @"\Ahttps://api\.github\.com/(?:users|orgs)/([A-Za-z0-9][A-Za-z0-9-]{0,38})/?\z",
             _ => throw new InvalidOperationException(UnavailableMessage)
         };
         if (!Regex.IsMatch(destination, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
@@ -94,6 +94,9 @@ public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISo
         // Do not permit normalization/encoded separators or a path escape to another organization.
         var originalPath = request.OriginalString.Split('?')[0];
         if (originalPath.Contains('%') || originalPath.Contains('\\') || originalPath.Split('/').Any(p => p is "." or "..")) return false;
+        if (provider == SourceTokenProvider.GitHub)
+            return request.Query.Length == 0 && (request.AbsolutePath.Equals(approved.AbsolutePath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) ||
+                request.AbsolutePath.Equals(approved.AbsolutePath, StringComparison.OrdinalIgnoreCase));
         return request.AbsolutePath.Equals(approved.AbsolutePath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) ||
             request.AbsolutePath.StartsWith(approved.AbsolutePath, StringComparison.OrdinalIgnoreCase);
     }
@@ -142,8 +145,8 @@ public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISo
             using var handler = CreateHandler();
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-            request.Headers.UserAgent.ParseAdd("DeploymentPortal/1.0");
-            request.Headers.Accept.ParseAdd("application/json");
+            if (provider == SourceTokenProvider.GitHub) GitHubAccountDetector.SetHeaders(request);
+            else { request.Headers.UserAgent.ParseAdd("DeploymentPortal/1.0"); request.Headers.Accept.ParseAdd("application/json"); }
             request.Headers.Authorization = provider == SourceTokenProvider.GitHub
                 ? new AuthenticationHeaderValue("Bearer", Encoding.ASCII.GetString(secret))
                 : new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes(":" + Encoding.ASCII.GetString(secret))));

@@ -18,7 +18,79 @@ public sealed class InfrastructureSourceTests
         ["Tfs:BaseUrl"] = "http://netserver:8080/tfs/DefaultCollection", ["TfsGit:BaseUrl"] = "http://NETSERVER:8080/tfs/DefaultCollection/"
     }).Build();
     private static SourceForm Form() => new() { DisplayName = "Example", Provider = InfrastructureSourceProvider.AzureDevOps, Destination = Destination, CredentialReference = Reference };
-    private static InfrastructureSourceService Service(ApplicationDbContext db, Metadata? metadata = null, Probe? probe = null) => new(db, Configuration(), metadata ?? new(), probe ?? new());
+    private static InfrastructureSourceService Service(ApplicationDbContext db, Metadata? metadata = null, Probe? probe = null) => new(db, Configuration(), metadata ?? new(), probe ?? new(), GitHubAccountDetectorTests.Detector());
+
+    [Fact]
+    public async Task GitHubSaveDetectsUserAndRejectsCredentialBoundToOldOrganizationDestination()
+    {
+        using var db = Database(); var metadata = new Metadata(); var service = Service(db, metadata);
+        metadata.Values = [new(Reference, SourceTokenProvider.GitHub, "https://api.github.com/orgs/saadrepo/")];
+        var form = new SourceForm { DisplayName = "Personal", Provider = InfrastructureSourceProvider.GitHub, Destination = "saadrepo", CredentialReference = Reference };
+        await Assert.ThrowsAsync<ArgumentException>(() => service.SaveAsync(form));
+        Assert.Empty(db.InfrastructureSources);
+        Assert.Equal("https://api.github.com/users/saadrepo/", form.Destination);
+        metadata.Values = [new(Reference, SourceTokenProvider.GitHub, "https://api.github.com/users/saadrepo/")];
+        await service.SaveAsync(form);
+        var source = Assert.Single(db.InfrastructureSources);
+        Assert.Equal("https://api.github.com/users/saadrepo/", source.Destination);
+        Assert.Equal(Reference, source.CredentialReference);
+    }
+
+    [Fact]
+    public async Task GitHubOrganizationSaveAndTestKeepExistingBinding()
+    {
+        using var db = Database(); var metadata = new Metadata(); var probe = new Probe(); var service = Service(db, metadata, probe);
+        var destination = "https://api.github.com/orgs/example/";
+        metadata.Values = [new(Reference, SourceTokenProvider.GitHub, destination)];
+        await service.SaveAsync(new SourceForm { DisplayName = "Organization", Provider = InfrastructureSourceProvider.GitHub,
+            Destination = "https://github.com/example", CredentialReference = Reference });
+        var source = Assert.Single(db.InfrastructureSources);
+        Assert.Equal(destination, source.Destination);
+        Assert.True(await service.TestAsync(source.Id, default)); Assert.Equal("Connected", source.ConnectionStatus);
+        Assert.Equal(1, probe.Calls); Assert.Equal(Reference, source.CredentialReference);
+    }
+
+    [Fact]
+    public async Task GitHubDetectionNetworkFailureCannotSaveSource()
+    {
+        using var db = Database(); var probe = new Probe();
+        using var detector = new GitHubAccountDetector(new HttpClient(new GitHubAccountDetectorTests.Handler(_ => throw new HttpRequestException("synthetic-secret"))));
+        var service = new InfrastructureSourceService(db, Configuration(), new Metadata(), probe, detector);
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => service.SaveAsync(new SourceForm {
+            DisplayName = "Personal", Provider = InfrastructureSourceProvider.GitHub, Destination = "saadrepo", CredentialReference = Reference
+        }));
+        Assert.DoesNotContain("synthetic-secret", error.Message); Assert.Empty(db.InfrastructureSources); Assert.Equal(0, probe.Calls);
+    }
+
+    [Fact]
+    public async Task GitHubTestCannotRetargetPreviouslyBoundOrganizationToUser()
+    {
+        using var db = Database(); var metadata = new Metadata(); var probe = new Probe(); var service = Service(db, metadata, probe);
+        var source = new InfrastructureSource { DisplayName = "Old binding", Provider = InfrastructureSourceProvider.GitHub,
+            Destination = "https://api.github.com/orgs/saadrepo/", CredentialReference = Reference };
+        db.InfrastructureSources.Add(source); await db.SaveChangesAsync();
+        metadata.Values = [new(Reference, SourceTokenProvider.GitHub, source.Destination)];
+        Assert.True(await service.TestAsync(source.Id, default));
+        Assert.Equal("Failed", source.ConnectionStatus); Assert.Equal(0, probe.Calls);
+        Assert.Equal("https://api.github.com/orgs/saadrepo/", source.Destination);
+        Assert.Equal(Reference, source.CredentialReference);
+    }
+
+    [Theory]
+    [InlineData("users", 200, true)] [InlineData("orgs", 200, true)]
+    [InlineData("users", 401, false)] [InlineData("users", 403, false)]
+    [InlineData("users", 404, false)] [InlineData("users", 429, false)]
+    [InlineData("orgs", 403, false)] [InlineData("orgs", 404, false)]
+    public async Task GitHubProbeUsesExactAuthenticatedAccountEndpoint(string segment, int status, bool success)
+    {
+        var transport = new Tokens((HttpStatusCode)status); var probe = new InfrastructureSourceProbe(transport, new NoWindows());
+        var destination = $"https://api.github.com/{segment}/example/";
+        Assert.Equal(success, await probe.TestAsync(new InfrastructureSource {
+            Provider = InfrastructureSourceProvider.GitHub, Destination = destination, CredentialReference = Reference
+        }, default));
+        Assert.Equal(destination.TrimEnd('/'), transport.Uri!.AbsoluteUri);
+        Assert.Equal(destination, transport.Destination); Assert.Equal(Reference, transport.Reference);
+    }
 
     [Fact]
     public async Task CrudEnableDisableAndDuplicateProtection()

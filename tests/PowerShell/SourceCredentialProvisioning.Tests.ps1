@@ -28,9 +28,12 @@ function Assert-Rejected([scriptblock]$Operation) {
     Assert-True $failed 'Operation should fail closed.'
 }
 try {
-    foreach ($provider in @('AzureDevOps','GitHub')) {
+    foreach ($kind in @('AzureDevOps','GitHubOrganization','GitHubUser')) {
+        $provider = 'GitHub'
+        if ($kind -eq 'AzureDevOps') { $provider = 'AzureDevOps' }
         $url = 'https://dev.azure.com/example/'
         if ($provider -eq 'GitHub') { $url = 'https://api.github.com/orgs/example/' }
+        if ($kind -eq 'GitHubUser') { $url = 'https://api.github.com/users/example/' }
         $result = & $manage -Action Provision -Provider $provider -Destination $url
         Assert-True ($result.Reference -cmatch '\A[a-f0-9]{64}\z') 'Opaque reference missing.'
         Assert-True (!(($result | ConvertTo-Json).Contains($global:SourceTestToken))) 'Secret exposed in metadata.'
@@ -42,6 +45,11 @@ try {
         Assert-True ([Text.Encoding]::ASCII.GetString($decoded) -ceq $global:SourceTestToken) 'Backend binding mismatch.'
         [Array]::Clear($decoded,0,$decoded.Length)
         Assert-Rejected { & $manage -Action Rotate -Reference $result.Reference -Provider $provider -Destination ($url.Replace('example','other')) }
+        if ($provider -eq 'GitHub') {
+            $differentType = $url.Replace('/orgs/','/users/')
+            if ($kind -eq 'GitHubUser') { $differentType = $url.Replace('/users/','/orgs/') }
+            Assert-Rejected { & $manage -Action Rotate -Reference $result.Reference -Provider $provider -Destination $differentType }
+        }
         $global:SourceTestToken = 'synthetic-only-rotated'
         $rotated = & $manage -Action Rotate -Reference $result.Reference -Provider $provider -Destination $url
         Assert-True ($rotated.Reference -ceq $result.Reference) 'Rotation changed reference.'

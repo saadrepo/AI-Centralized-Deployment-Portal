@@ -9,7 +9,7 @@ namespace DeploymentPortal.Controllers;
 
 [Authorize(Policy = SourcesManagementAuthorization.Policy)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class SourcesController(IInfrastructureSourceService sources) : Controller
+public sealed class SourcesController(IInfrastructureSourceService sources, IGitHubAccountDetector github) : Controller
 {
     [HttpGet("/Servers/Sources")]
     public async Task<IActionResult> Index()
@@ -31,18 +31,26 @@ public sealed class SourcesController(IInfrastructureSourceService sources) : Co
         return View("Form", form);
     }
     [HttpGet]
-    public IActionResult ProvisioningCommand(string? provider, string? destination)
+    public async Task<IActionResult> ResolveGitHubAccount(string? destination, CancellationToken cancellationToken)
+    {
+        try { return Json(await github.DetectAsync(destination ?? "", cancellationToken)); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+    [HttpGet]
+    public async Task<IActionResult> ProvisioningCommand(string? provider, string? destination, CancellationToken cancellationToken)
     {
         // Only generate instructions. Never invoke a process or accept a secret here.
         if (provider is not ("AzureDevOps" or "GitHub") || destination is null || destination.Length > 400)
             return BadRequest(new { error = "Select Azure DevOps or GitHub and enter its approved organization URL." });
         try {
-            var canonical = SourceCredentialProvider.CanonicalDestination(Enum.Parse<SourceTokenProvider>(provider), destination);
-            // CanonicalDestination accepts only fixed HTTPS hosts and alphanumeric/hyphen organizations.
-            return Json(new { command = $"& \"C:\\AdminTools\\DeploymentPortal\\Manage-SourceCredential.ps1\" -Action Provision -Provider {provider} -Destination \"{canonical}\" -AppPoolName \"DeploymentPortal\"" });
+            var canonical = provider == "GitHub" ? (await github.DetectAsync(destination, cancellationToken)).Destination
+                : SourceCredentialProvider.CanonicalDestination(SourceTokenProvider.AzureDevOps, destination);
+            // Only fixed HTTPS hosts and alphanumeric/hyphen accounts can enter the command.
+            return Json(new { destination = canonical, command = $"& \"C:\\AdminTools\\DeploymentPortal\\Manage-SourceCredential.ps1\" -Action Provision -Provider {provider} -Destination \"{canonical}\" -AppPoolName \"DeploymentPortal\"" });
         }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
         catch (InvalidOperationException) {
-            return BadRequest(new { error = "Enter a supported organization URL matching the selected provider. GitHub requires https://api.github.com/orgs/organization/." });
+            return BadRequest(new { error = "Enter a supported account destination matching the selected provider." });
         }
     }
     [HttpGet]
@@ -59,7 +67,11 @@ public sealed class SourcesController(IInfrastructureSourceService sources) : Co
     {
         if (!ModelState.IsValid) return Form(form);
         try { await sources.SaveAsync(form); TempData["Success"] = "Source saved. Existing CI/CD configuration is unchanged."; return RedirectToAction(nameof(Index)); }
-        catch (Exception ex) when (ex is ArgumentException or ValidationException) { ModelState.AddModelError("", ex.Message); }
+        catch (Exception ex) when (ex is ArgumentException or ValidationException) {
+            if (form.Provider == DeploymentPortal.Models.InfrastructureSourceProvider.GitHub)
+                ModelState.Remove(nameof(SourceForm.Destination)); // Display the detected destination if binding validation failed.
+            ModelState.AddModelError("", ex.Message);
+        }
         catch (DbUpdateException) { ModelState.AddModelError("", "Source could not be saved. Check for a duplicate connection or reload and retry."); }
         return Form(form);
     }

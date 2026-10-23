@@ -31,6 +31,21 @@ public sealed class SourcesController(IInfrastructureSourceService sources) : Co
         return View("Form", form);
     }
     [HttpGet]
+    public IActionResult ProvisioningCommand(string? provider, string? destination)
+    {
+        // Only generate instructions. Never invoke a process or accept a secret here.
+        if (provider is not ("AzureDevOps" or "GitHub") || destination is null || destination.Length > 400)
+            return BadRequest(new { error = "Select Azure DevOps or GitHub and enter its approved organization URL." });
+        try {
+            var canonical = SourceCredentialProvider.CanonicalDestination(Enum.Parse<SourceTokenProvider>(provider), destination);
+            // CanonicalDestination accepts only fixed HTTPS hosts and alphanumeric/hyphen organizations.
+            return Json(new { command = $"& \"C:\\AdminTools\\DeploymentPortal\\Manage-SourceCredential.ps1\" -Action Provision -Provider {provider} -Destination \"{canonical}\" -AppPoolName \"DeploymentPortal\"" });
+        }
+        catch (InvalidOperationException) {
+            return BadRequest(new { error = "Enter a supported organization URL matching the selected provider. GitHub requires https://api.github.com/orgs/organization/." });
+        }
+    }
+    [HttpGet]
     public IActionResult Credentials()
     {
         try { return Json(sources.Credentials()); }

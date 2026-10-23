@@ -12,11 +12,28 @@
 <div class="col-12"><label asp-for="Destination"></label><input asp-for="Destination" class="form-control" list="source-destinations" placeholder="Select or enter the exact approved organization URL" /><span asp-validation-for="Destination"></span>
 <datalist id="source-destinations">@foreach (var source in Model.Configured) { <option value="@source.Destination">@source.Name</option> } @foreach (var credential in Model.Credentials) { <option value="@credential.Destination">@credential.Provider</option> }</datalist>
 <p class="form-text">TFS: choose a configured collection below. Azure DevOps: https://dev.azure.com/organization/. GitHub: https://api.github.com/orgs/organization/.</p></div>
-<div class="col-12"><label asp-for="CredentialReference"></label><select asp-for="CredentialReference" class="form-select"><option value="">TFS: existing protected Windows credentials</option>
+<div class="col-12"><div class="d-flex align-items-center gap-3 flex-wrap"><label asp-for="CredentialReference"></label><a href="#credential-provisioning" data-bs-toggle="modal" aria-controls="credential-provisioning">Credentials Provisioning</a></div><select asp-for="CredentialReference" class="form-select"><option value="">TFS: existing protected Windows credentials</option>
 @foreach (var credential in Model.Credentials) { <option value="@credential.Reference">@credential.Provider · @credential.Destination · @credential.Reference</option> }
-</select><span asp-validation-for="CredentialReference"></span><p class="form-text">Cloud credentials must match the selected provider and organization. A host administrator provisions and rotates tokens; tokens cannot be entered here.</p></div>
+</select><span asp-validation-for="CredentialReference"></span><p class="form-text">Cloud credentials must match the selected provider and organization. A host administrator provisions and rotates tokens; tokens cannot be entered here.</p>
+<button type="button" class="btn btn-outline-secondary" id="refresh-credentials" data-url="@Url.Action("Credentials")">Refresh Credentials</button>
+<p id="credential-refresh-status" class="form-text" role="status" aria-live="polite"></p></div>
 <div class="col-12 form-check form-switch"><input asp-for="Enabled" class="form-check-input" /><label asp-for="Enabled" class="form-check-label"></label></div>
 </div>
 <div class="form-actions"><a class="btn btn-light" asp-action="Index">Cancel</a><button class="btn btn-primary" type="submit">Save source</button></div>
 </form></section>
-@section Scripts { <partial name="_ValidationScriptsPartial" /> }
+<div class="modal fade" id="credential-provisioning" tabindex="-1" aria-labelledby="credential-provisioning-title" aria-hidden="true" data-command-url="@Url.Action("ProvisioningCommand")">
+<div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h2 class="modal-title fs-5" id="credential-provisioning-title">Credentials Provisioning</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<div class="modal-body">
+<p>An administrator must run this command manually in elevated Windows PowerShell 5.1 on the <strong>SOURCE server hosting the portal</strong>. The browser does not launch PowerShell or provision credentials.</p>
+<ol><li>An administrator-approved copy of <code>tools\Manage-SourceCredential.ps1</code> must be installed on SOURCE at <code>C:\AdminTools\DeploymentPortal\Manage-SourceCredential.ps1</code>. The command uses that absolute path and can run from any working directory.</li>
+<li>Confirm the selected provider and organization URL. The command below uses the default IIS application pool name <code>DeploymentPortal</code>; if SOURCE uses a different pool, the administrator must replace that argument with its actual name.</li>
+<li>Run the command and enter the PAT only at the script's hidden secure prompt. Do not add the PAT to the command. The existing script encrypts the credential with DPAPI and returns a credential reference.</li>
+<li>Close this help, choose <strong>Refresh Credentials</strong>, and select the returned reference. Refresh reads credentials on the host serving this portal; a LOCAL portal cannot list SOURCE's store.</li></ol>
+<p id="provisioning-command-status" role="status" aria-live="polite"></p>
+<pre class="border rounded p-3 text-wrap"><code id="provisioning-command"></code></pre>
+<button type="button" class="btn btn-outline-primary" id="copy-provisioning-command" disabled>Copy PowerShell Command</button>
+<p class="form-text">TFS uses its existing configured Windows connections and does not require this PAT provisioning command. GitHub supports the existing organization URL format only.</p>
+</div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
+</div></div></div>
+@section Scripts { <partial name="_ValidationScriptsPartial" /><script src="~/js/source-credentials.js" asp-append-version="true"></script> }

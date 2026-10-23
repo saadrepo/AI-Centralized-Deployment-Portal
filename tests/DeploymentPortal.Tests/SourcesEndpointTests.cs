@@ -28,6 +28,7 @@ public sealed class SourcesEndpointTests
     [InlineData("GET", "/Sources/Create")]
     [InlineData("GET", "/Sources/Edit/1")]
     [InlineData("GET", "/Sources/Credentials")]
+    [InlineData("GET", "/Sources/ProvisioningCommand")]
     [InlineData("POST", "/Sources/Create")]
     [InlineData("POST", "/Sources/Edit/1")]
     [InlineData("POST", "/Sources/SetEnabled/1")]
@@ -52,6 +53,7 @@ public sealed class SourcesEndpointTests
         await using var app = Host(service, forged);
         await app.StartAsync(); using var client = Client(app);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/Sources/Credentials")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/Sources/ProvisioningCommand?provider=GitHub&destination=https://api.github.com/orgs/example/")).StatusCode);
         Assert.Equal(0, service.Calls); await app.StopAsync();
     }
 
@@ -66,6 +68,15 @@ public sealed class SourcesEndpointTests
         Assert.Contains("Registered sources", list); Assert.Contains("/Servers", list);
         var form = await client.GetStringAsync("/Sources/Create");
         Assert.Contains("CredentialReference", form); Assert.Contains("__RequestVerificationToken", form);
+        foreach (var html in new[] { form, await client.GetStringAsync("/Sources/Edit/1") }) {
+            Assert.Contains("<a href=\"#credential-provisioning\"", html);
+            Assert.Contains("Credentials Provisioning</a>", html);
+            Assert.Contains("Copy PowerShell Command", html);
+            Assert.Contains("Refresh Credentials", html);
+            Assert.Contains("hidden secure prompt", html);
+            Assert.DoesNotContain("type=\"password\"", html);
+            Assert.DoesNotContain("Provision Credential</button>", html);
+        }
         var metadata = await client.GetStringAsync("/Sources/Credentials");
         Assert.Contains(InfrastructureSourceTests.Reference, metadata); Assert.DoesNotContain("Ciphertext", metadata);
         var calls = service.Calls;
@@ -86,6 +97,38 @@ public sealed class SourcesEndpointTests
         using var created = await client.SendAsync(create);
         Assert.Equal(HttpStatusCode.Redirect, created.StatusCode);
         Assert.Equal(calls + 2, service.Calls); // Blank Windows-credential selection must reach service validation.
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task ProvisioningInstructionsValidateDestinationWithoutAccessingCredentialStore()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent(); var service = new FakeSources();
+        await using var app = Host(service, new WindowsPrincipal(identity));
+        await app.StartAsync(); using var client = Client(app);
+        foreach (var (provider, destination, canonical) in new[] {
+            ("GitHub", "https://API.GITHUB.COM/orgs/Example", "https://api.github.com/orgs/example/"),
+            ("AzureDevOps", "https://dev.azure.com/Example/", "https://dev.azure.com/example/") }) {
+            using var response = await client.GetAsync($"/Sources/ProvisioningCommand?provider={provider}&destination={Uri.EscapeDataString(destination)}");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.Headers.CacheControl!.NoStore);
+            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var command = json.RootElement.GetProperty("command").GetString();
+            Assert.Equal($"& \"C:\\AdminTools\\DeploymentPortal\\Manage-SourceCredential.ps1\" -Action Provision -Provider {provider} -Destination \"{canonical}\" -AppPoolName \"DeploymentPortal\"", command);
+            Assert.DoesNotContain(@".\Manage-SourceCredential.ps1", command);
+        }
+        foreach (var (provider, destination) in new[] {
+            ("Tfs2018", "http://netserver:8080/tfs/DefaultCollection/"), ("1", "https://api.github.com/orgs/example/"),
+            ("GitHub", "https://api.github.com/users/example/"), ("GitHub", "https://api.github.com/orgs/example/'; whoami; #"),
+            ("GitHub", "https://api.github.com/orgs/example/?x=1"), ("GitHub", "https://api.github.com/orgs/example/\n"),
+            ("GitHub", "https://github.com/example/"), ("GitHub", "https://dev.azure.com/example/"),
+            ("AzureDevOps", "https://api.github.com/orgs/example/"), ("GitHub", ""), ("GitHub", new string('x', 401)) }) {
+            using var response = await client.GetAsync($"/Sources/ProvisioningCommand?provider={provider}&destination={Uri.EscapeDataString(destination)}");
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.DoesNotContain("Manage-SourceCredential.ps1", await response.Content.ReadAsStringAsync());
+        }
+        Assert.Equal(0, service.Calls);
         await app.StopAsync();
     }
 
@@ -131,7 +174,7 @@ public sealed class SourcesEndpointTests
         public IReadOnlyList<ConfiguredSource> Configured() { Calls++; return []; }
         public IReadOnlyList<SourceCredentialMetadata> Credentials() { Calls++; return [new(InfrastructureSourceTests.Reference, SourceTokenProvider.AzureDevOps, "https://dev.azure.com/example/")]; }
         public Task<SourcesPage> ListAsync() { Calls++; return Task.FromResult(new SourcesPage([], [])); }
-        public Task<InfrastructureSource?> FindAsync(int id) { Calls++; return Task.FromResult<InfrastructureSource?>(null); }
+        public Task<InfrastructureSource?> FindAsync(int id) { Calls++; return Task.FromResult<InfrastructureSource?>(id == 1 ? new InfrastructureSource { Id = 1, DisplayName = "Existing source", Provider = InfrastructureSourceProvider.GitHub, Destination = "https://api.github.com/orgs/example/" } : null); }
         public Task SaveAsync(SourceForm form) { Calls++; return Task.CompletedTask; }
         public Task<bool> SetEnabledAsync(int id, bool enabled) { Calls++; return Task.FromResult(true); }
         public Task<bool> DeleteAsync(int id) { Calls++; return Task.FromResult(true); }

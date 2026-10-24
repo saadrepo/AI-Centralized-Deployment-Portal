@@ -14,6 +14,7 @@ public sealed class CloudExplorerQuery
     public string? Repository { get; set; }
     public string? Branch { get; set; }
     public long BuildId { get; set; }
+    public long DefinitionId { get; set; }
     public string? Cursor { get; set; }
 }
 public sealed record ExplorerItem(string Id, string Name, bool Private = false);
@@ -37,7 +38,7 @@ public sealed class CloudBuildExplorer(IInfrastructureSourceService sources, ISo
     private sealed record Scope(InfrastructureSource Source, SourceTokenProvider Provider, string Destination, string Account, CancellationToken Token);
     public async Task<CloudExplorerPage> BrowseAsync(CloudExplorerQuery query, CancellationToken cancellationToken)
     {
-        if (query.Provider is not ("GitHub" or "AzureDevOps") || query.Operation is not ("sources" or "projects" or "repositories" or "branches" or "builds" or "artifacts") || !SourceExplorerRequestPolicy.Cursor(query.Cursor))
+        if (query.Provider is not ("GitHub" or "AzureDevOps") || query.Operation is not ("sources" or "projects" or "repositories" or "branches" or "builds" or "artifacts" or "definitions" or "status") || !SourceExplorerRequestPolicy.Cursor(query.Cursor))
             throw new SourceExplorerException("Select a valid provider and explorer operation.");
         var provider = query.Provider == "GitHub" ? InfrastructureSourceProvider.GitHub : InfrastructureSourceProvider.AzureDevOps;
         if (query.Operation == "sources") return new() {
@@ -115,9 +116,18 @@ public sealed class CloudBuildExplorer(IInfrastructureSourceService sources, ISo
         Require(SourceExplorerRequestPolicy.BranchName(q.Branch));
         using var branchResponse = await Read(s, repoPath + "/branches/" + Uri.EscapeDataString(q.Branch!));
         Require(Text(branchResponse.Json.RootElement, "name") == q.Branch);
-        bool InScope(JsonElement run) => GitHubOwned(run.GetProperty("repository"), s) && Id(run.GetProperty("repository")) == repoId && Text(run, "head_branch") == q.Branch;
+        if (q.Operation == "definitions") {
+            using var workflows = await Read(s, repoPath + "/actions/workflows", ("per_page", "100"), ("page", pageText));
+            return new() { Items = Array(workflows.Json.RootElement, "workflows").Select(w => new ExplorerItem(Id(w).ToString(CultureInfo.InvariantCulture), Text(w, "name"))).ToList(), Next = Next(workflows, page) };
+        }
+        if (q.DefinitionId != 0) {
+            Require(q.DefinitionId is > 0 and < 1000000000000000000);
+            using var workflow = await Read(s, $"{repoPath}/actions/workflows/{q.DefinitionId}");
+            Require(Id(workflow.Json.RootElement) == q.DefinitionId);
+        }
+        bool InScope(JsonElement run) => GitHubOwned(run.GetProperty("repository"), s) && Id(run.GetProperty("repository")) == repoId && Text(run, "head_branch") == q.Branch && (q.DefinitionId == 0 || Id(run, "workflow_id") == q.DefinitionId);
         if (q.Operation == "builds") {
-            using var response = await Read(s, repoPath + "/actions/runs", ("branch", q.Branch!), ("per_page", "20"), ("page", pageText));
+            using var response = await Read(s, q.DefinitionId == 0 ? repoPath + "/actions/runs" : $"{repoPath}/actions/workflows/{q.DefinitionId}/runs", ("branch", q.Branch!), ("per_page", "20"), ("page", pageText));
             var runs = Array(response.Json.RootElement, "workflow_runs"); Require(runs.Length <= 20);
             var builds = new List<ExplorerBuild>();
             foreach (var run in runs) {
@@ -132,6 +142,10 @@ public sealed class CloudBuildExplorer(IInfrastructureSourceService sources, ISo
         Require(q.BuildId is > 0 and < 1000000000000000000);
         using var runResponse = await Read(s, $"{repoPath}/actions/runs/{q.BuildId}");
         Require(Id(runResponse.Json.RootElement) == q.BuildId && InScope(runResponse.Json.RootElement));
+        if (q.Operation == "status") {
+            var run = runResponse.Json.RootElement;
+            return new() { Builds = [new(q.BuildId, Id(run, "run_number").ToString(CultureInfo.InvariantCulture), q.Branch!, Text(run, "head_sha"), Text(run, "status"), Text(run, "conclusion", true), false)] };
+        }
         using var artifactResponse = await Read(s, $"{repoPath}/actions/runs/{q.BuildId}/artifacts", ("per_page", "100"), ("page", pageText));
         return new() {
             Artifacts = Array(artifactResponse.Json.RootElement, "artifacts").Select(a => new ExplorerArtifact(Text(a, "name"),
@@ -172,12 +186,28 @@ public sealed class CloudBuildExplorer(IInfrastructureSourceService sources, ISo
         Require(SourceExplorerRequestPolicy.BranchName(q.Branch));
         using var branchResponse = await Read(s, repoPath + "/refs", ("filter", "heads/" + q.Branch), ("$top", "100"));
         Require(Array(branchResponse.Json.RootElement, "value").Any(b => Text(b, "name") == "refs/heads/" + q.Branch));
+        var definitionsPath = project + "/_apis/build/definitions";
+        if (q.Operation == "definitions") {
+            using var definitions = await Read(s, definitionsPath, Paging(("repositoryId", repository), ("repositoryType", "TfsGit"), ("$top", "100")));
+            return new() { Items = Array(definitions.Json.RootElement, "value").Select(d => {
+                Require(Same(Text(d.GetProperty("project"), "id"), project));
+                return new ExplorerItem(Id(d).ToString(CultureInfo.InvariantCulture), Text(d, "name"));
+            }).ToList(), Next = definitions.Continuation };
+        }
+        if (q.DefinitionId != 0) {
+            Require(q.DefinitionId is > 0 and <= int.MaxValue);
+            using var definition = await Read(s, $"{definitionsPath}/{q.DefinitionId}");
+            var d = definition.Json.RootElement;
+            Require(Id(d) == q.DefinitionId && Same(Text(d.GetProperty("project"), "id"), project) &&
+                Same(Text(d.GetProperty("repository"), "id"), repository) && Same(Text(d.GetProperty("repository"), "type"), "TfsGit"));
+        }
         bool InScope(JsonElement b) => Same(Text(b.GetProperty("project"), "id"), project) && Same(Text(b.GetProperty("repository"), "id"), repository) &&
-            Same(Text(b.GetProperty("repository"), "type"), "TfsGit") && Text(b, "sourceBranch") == "refs/heads/" + q.Branch;
+            Same(Text(b.GetProperty("repository"), "type"), "TfsGit") && Text(b, "sourceBranch") == "refs/heads/" + q.Branch && (q.DefinitionId == 0 || Id(b.GetProperty("definition")) == q.DefinitionId);
         var buildsPath = project + "/_apis/build/builds";
         if (q.Operation == "builds") {
-            using var response = await Read(s, buildsPath, Paging(("repositoryId", repository), ("repositoryType", "TfsGit"),
-                ("branchName", "refs/heads/" + q.Branch), ("$top", "20"), ("queryOrder", "queueTimeDescending")));
+            using var response = await Read(s, buildsPath, Paging([("repositoryId", repository), ("repositoryType", "TfsGit"),
+                ("branchName", "refs/heads/" + q.Branch), ("$top", "20"), ("queryOrder", "queueTimeDescending"),
+                .. (q.DefinitionId == 0 ? System.Array.Empty<(string, string)>() : new[] { ("definitions", q.DefinitionId.ToString(CultureInfo.InvariantCulture)) })]));
             var builds = new List<ExplorerBuild>(); var rows = Array(response.Json.RootElement, "value"); Require(rows.Length <= 20);
             foreach (var build in rows) {
                 Require(InScope(build)); var id = Id(build); Require(id <= int.MaxValue);
@@ -189,6 +219,10 @@ public sealed class CloudBuildExplorer(IInfrastructureSourceService sources, ISo
         Require(q.BuildId is > 0 and <= int.MaxValue);
         using var buildResponse = await Read(s, $"{buildsPath}/{q.BuildId}");
         Require(Id(buildResponse.Json.RootElement) == q.BuildId && InScope(buildResponse.Json.RootElement));
+        if (q.Operation == "status") {
+            var b = buildResponse.Json.RootElement;
+            return new() { Builds = [new(q.BuildId, Text(b, "buildNumber"), q.Branch!, Text(b, "sourceVersion"), Text(b, "status"), Text(b, "result", true), false)] };
+        }
         using var artifactResponse = await Read(s, $"{buildsPath}/{q.BuildId}/artifacts");
         var artifactsList = Array(artifactResponse.Json.RootElement, "value"); var artifactPage = Page(q.Cursor);
         return new() { Artifacts = artifactsList.Skip((artifactPage - 1) * 100).Take(100).Select(a => new ExplorerArtifact(Text(a, "name"), Text(a.GetProperty("resource"), "type"), null)).ToList(),

@@ -13,11 +13,11 @@ public sealed class CloudBuildExplorerTests
     internal static SourceApiPage Page(object body, string? continuation = null, bool more = false) => new(JsonDocument.Parse(JsonSerializer.Serialize(body)), continuation, more);
     private static object Repo(string owner = "saadrepo") => new { id = 10, name = "app", @private = true, owner = new { login = owner } };
     private static object Run(string owner = "saadrepo", string branch = "feature/main") => new {
-        id = 42, run_number = 7, head_branch = branch, head_sha = "abc123", status = "completed", conclusion = "success", repository = Repo(owner)
+        id = 42, workflow_id = 7, run_number = 7, head_branch = branch, head_sha = "abc123", status = "completed", conclusion = "success", repository = Repo(owner)
     };
     private static object AzureRepo(string project = Project) => new { id = Repository, name = "app", project = new { id = project } };
     private static object AzureBuild(string project = Project, string branch = "refs/heads/feature/main") => new {
-        id = 42, buildNumber = "CI-42", sourceBranch = branch, sourceVersion = "abc123", status = "completed", result = "succeeded",
+        id = 42, definition = new { id = 7 }, buildNumber = "CI-42", sourceBranch = branch, sourceVersion = "abc123", status = "completed", result = "succeeded",
         project = new { id = project }, repository = new { id = Repository, type = "TfsGit" }
     };
     internal sealed class Sources : IInfrastructureSourceService
@@ -50,6 +50,9 @@ public sealed class CloudBuildExplorerTests
         "/repos/saadrepo/app" => Page(Repo()),
         "/repos/saadrepo/app/branches" => Page(new[] { new { name = "feature/main" } }, more: true),
         "/repos/saadrepo/app/branches/feature%2Fmain" => Page(new { name = "feature/main" }),
+        "/repos/saadrepo/app/actions/workflows" => Page(new { workflows = new[] { new { id = 7, name = "Build only" } } }, more: true),
+        "/repos/saadrepo/app/actions/workflows/7" => Page(new { id = 7, name = "Build only" }),
+        "/repos/saadrepo/app/actions/workflows/7/runs" => Page(new { workflow_runs = new[] { Run() } }),
         "/repos/saadrepo/app/actions/runs" => Page(new { workflow_runs = new[] { Run() } }, more: true),
         "/repos/saadrepo/app/actions/runs/42" => Page(Run()),
         "/repos/saadrepo/app/actions/runs/42/artifacts" => Page(new { total_count = 1, artifacts = new[] { new { name = "drop", expired = false, size_in_bytes = 123, archive_download_url = "https://evil.example/not-followed" } } }),
@@ -63,6 +66,8 @@ public sealed class CloudBuildExplorerTests
         if (path.EndsWith("/_apis/git/repositories")) return Page(new { value = new[] { AzureRepo() } });
         if (path.EndsWith("/_apis/git/repositories/" + Repository)) return Page(AzureRepo());
         if (path.EndsWith("/refs")) return Page(new { value = new[] { new { name = "refs/heads/feature/main" } } }, "branch+next");
+        if (path.EndsWith("/_apis/build/definitions")) return Page(new { value = new[] { new { id = 7, name = "Build only", project = new { id = Project } } } }, "definitions+next");
+        if (path.EndsWith("/_apis/build/definitions/7")) return Page(new { id = 7, project = new { id = Project }, repository = new { id = Repository, type = "TfsGit" } });
         if (path.EndsWith("/_apis/build/builds")) return Page(new { value = new[] { AzureBuild() } }, "build+next");
         if (path.EndsWith("/builds/42")) return Page(AzureBuild());
         if (path.EndsWith("/builds/42/artifacts")) return Page(new { value = new[] { new { name = "drop", resource = new { type = "Container", downloadUrl = "https://evil.example/not-followed" } } } });
@@ -181,5 +186,70 @@ public sealed class CloudBuildExplorerTests
     {
         var reader = new Reader(GitHubReply); var q = GitHub("branches"); q.Repository = name;
         await Assert.ThrowsAsync<SourceExplorerException>(() => new CloudBuildExplorer(new Sources(), reader).BrowseAsync(q, default)); Assert.Empty(reader.Calls);
+    }
+
+    [Theory]
+    [InlineData("GitHub", "definitions")]
+    [InlineData("GitHub", "builds")]
+    [InlineData("GitHub", "status")]
+    [InlineData("GitHub", "artifacts")]
+    [InlineData("AzureDevOps", "definitions")]
+    [InlineData("AzureDevOps", "builds")]
+    [InlineData("AzureDevOps", "status")]
+    [InlineData("AzureDevOps", "artifacts")]
+    public async Task PipelineReadsAreBoundToRepositoryBranchAndSelectedDefinition(string provider, string operation)
+    {
+        var github = provider == "GitHub";
+        var query = github ? GitHub(operation) : Azure(operation); query.DefinitionId = 7;
+        var reader = new Reader(github ? GitHubReply : AzureReply);
+        var result = await new CloudBuildExplorer(github ? new Sources() : AzureSources(), reader).BrowseAsync(query, default);
+        if (operation == "definitions") Assert.Equal("7", Assert.Single(result.Items).Id);
+        if (operation is "builds" or "status") Assert.Equal(42, Assert.Single(result.Builds).Id);
+        if (operation == "status") Assert.DoesNotContain(reader.Calls, u => u.AbsolutePath.EndsWith("/artifacts"));
+        if (operation == "builds") Assert.Contains(reader.Calls, u => github ? u.AbsolutePath.EndsWith("/workflows/7/runs") : u.Query.Contains("definitions=7"));
+        Assert.All(reader.Calls, u => Assert.DoesNotContain("dispatch", u.AbsoluteUri));
+    }
+
+    [Theory]
+    [InlineData("GitHub", "status")]
+    [InlineData("GitHub", "artifacts")]
+    [InlineData("AzureDevOps", "status")]
+    [InlineData("AzureDevOps", "artifacts")]
+    public async Task RunFromDifferentDefinitionIsRejectedBeforeArtifactAccess(string provider, string operation)
+    {
+        var github = provider == "GitHub"; var query = github ? GitHub(operation) : Azure(operation); query.DefinitionId = 7;
+        var reader = new Reader(uri => {
+            if (uri.AbsolutePath.EndsWith("/runs/42") || uri.AbsolutePath.EndsWith("/builds/42")) {
+                var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(github ? Run() : AzureBuild()))!;
+                if (github) json["workflow_id"] = 8; else json["definition"]!["id"] = 8;
+                return Page(json);
+            }
+            return github ? GitHubReply(uri) : AzureReply(uri);
+        });
+        await Assert.ThrowsAsync<SourceExplorerException>(() => new CloudBuildExplorer(github ? new Sources() : AzureSources(), reader).BrowseAsync(query, default));
+        Assert.DoesNotContain(reader.Calls, u => u.AbsolutePath.EndsWith("/artifacts"));
+    }
+
+    [Fact]
+    public async Task AzureDefinitionFromAnotherRepositoryCannotBeSelected()
+    {
+        var query = Azure("builds"); query.DefinitionId = 7;
+        var reader = new Reader(u => u.AbsolutePath.EndsWith("/definitions/7")
+            ? Page(new { id = 7, project = new { id = Project }, repository = new { id = "33333333-3333-3333-3333-333333333333", type = "TfsGit" } }) : AzureReply(u));
+        await Assert.ThrowsAsync<SourceExplorerException>(() => new CloudBuildExplorer(AzureSources(), reader).BrowseAsync(query, default));
+        Assert.DoesNotContain(reader.Calls, u => u.AbsolutePath.EndsWith("/builds"));
+    }
+
+    [Theory]
+    [InlineData("GitHub")]
+    [InlineData("AzureDevOps")]
+    public async Task TransferredBranchMustExistBeforePipelineDefinitionsAreRead(string provider)
+    {
+        var github = provider == "GitHub"; var query = github ? GitHub("definitions") : Azure("definitions");
+        query.Branch = "deleted-branch";
+        // Return the selected repository's actual branch, never trust the URL hint.
+        var validatingReader = new Reader(u => github && u.AbsolutePath.Contains("/branches/") ? Page(new { name = "feature/main" }) : (github ? GitHubReply(u) : AzureReply(u)));
+        await Assert.ThrowsAsync<SourceExplorerException>(() => new CloudBuildExplorer(github ? new Sources() : AzureSources(), validatingReader).BrowseAsync(query, default));
+        Assert.DoesNotContain(validatingReader.Calls, u => u.AbsolutePath.EndsWith("/workflows") || u.AbsolutePath.EndsWith("/definitions"));
     }
 }

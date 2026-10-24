@@ -1,6 +1,8 @@
 using System.Text.Json;
 using DeploymentPortal.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 
 namespace DeploymentPortal.Controllers;
 
@@ -8,7 +10,17 @@ namespace DeploymentPortal.Controllers;
 public sealed class PipelineController(PipelineService pipeline, ILogger<PipelineController> logger) : Controller
 {
     [HttpGet]
-    public IActionResult Index() => User.Identity?.IsAuthenticated == true ? View() : StatusCode(401, "Sign in using your Windows account to open CI/CD Pipeline.");
+    public async Task<IActionResult> Index(string provider = "Tfs2018")
+    {
+        if (provider is not ("Tfs2018" or "GitHub" or "AzureDevOps")) return BadRequest();
+        if (provider == "Tfs2018") return User.Identity?.IsAuthenticated == true ? View() : StatusCode(401, "Sign in using your Windows account to open CI/CD Pipeline.");
+        var identity = await HttpContext.AuthenticateAsync(SourcesManagementAuthorization.Scheme);
+        if (!identity.Succeeded || identity.Principal is null) return Challenge(SourcesManagementAuthorization.Scheme);
+        var authorization = HttpContext.RequestServices.GetRequiredService<IAuthorizationService>();
+        if (!(await authorization.AuthorizeAsync(identity.Principal, null, SourcesManagementAuthorization.Policy)).Succeeded)
+            return Forbid(SourcesManagementAuthorization.Scheme);
+        return View("Cloud", provider);
+    }
 
     [HttpGet]
     public IActionResult Applications() => User.Identity?.IsAuthenticated == true

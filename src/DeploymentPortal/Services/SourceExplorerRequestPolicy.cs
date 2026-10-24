@@ -42,6 +42,9 @@ public static class SourceExplorerRequestPolicy
                 if (tail == "") return q.Count == 0;
                 if (tail == "/branches") return Only("per_page", "page") && Page(100);
                 if (tail.StartsWith("/branches/", StringComparison.Ordinal)) return q.Count == 0 && BranchName(Uri.UnescapeDataString(tail[10..]));
+                if (tail == "/actions/workflows") return Only("per_page", "page") && Page(100);
+                if (Regex.IsMatch(tail, @"\A/actions/workflows/[1-9][0-9]{0,17}\z")) return q.Count == 0;
+                if (Regex.IsMatch(tail, @"\A/actions/workflows/[1-9][0-9]{0,17}/runs\z")) return Only("per_page", "page", "branch") && Page(20) && BranchName(Value("branch"));
                 if (tail == "/actions/runs") return Only("per_page", "page", "branch") && Page(20) && BranchName(Value("branch"));
                 if (Regex.IsMatch(tail, @"\A/actions/runs/[1-9][0-9]{0,17}\z")) return q.Count == 0;
                 return Regex.IsMatch(tail, @"\A/actions/runs/[1-9][0-9]{0,17}/artifacts\z") && Only("per_page", "page") && Page(100);
@@ -56,8 +59,12 @@ public static class SourceExplorerRequestPolicy
             if (Regex.IsMatch(relative, $@"\A{guid}/_apis/git/repositories(?:/{guid})?\z")) return Only("api-version");
             if (Regex.IsMatch(relative, $@"\A{guid}/_apis/git/repositories/{guid}/refs\z")) return Only("api-version", "filter", "$top", "continuationToken") &&
                 Value("$top") == "100" && (Value("filter") == "heads/" || Value("filter").StartsWith("heads/", StringComparison.Ordinal) && BranchName(Value("filter")[6..]));
-            if (Regex.IsMatch(relative, $@"\A{guid}/_apis/build/builds\z")) return Only("api-version", "repositoryId", "repositoryType", "branchName", "$top", "queryOrder", "continuationToken") &&
+            if (Regex.IsMatch(relative, $@"\A{guid}/_apis/build/definitions\z")) return Only("api-version", "repositoryId", "repositoryType", "$top", "continuationToken") &&
+                Guid.TryParseExact(Value("repositoryId"), "D", out _) && Value("repositoryType") == "TfsGit" && Value("$top") == "100";
+            if (Regex.IsMatch(relative, $@"\A{guid}/_apis/build/definitions/[1-9][0-9]{{0,9}}\z")) return Only("api-version");
+            if (Regex.IsMatch(relative, $@"\A{guid}/_apis/build/builds\z")) return Only("api-version", "repositoryId", "repositoryType", "branchName", "$top", "queryOrder", "continuationToken", "definitions") &&
                 Guid.TryParseExact(Value("repositoryId"), "D", out _) && Value("repositoryType") == "TfsGit" && Value("$top") == "20" &&
+                (!q.ContainsKey("definitions") || int.TryParse(Value("definitions"), out var definitionId) && definitionId > 0) &&
                 Value("queryOrder") == "queueTimeDescending" && Value("branchName").StartsWith("refs/heads/", StringComparison.Ordinal) && BranchName(Value("branchName")[11..]);
             return Regex.IsMatch(relative, $@"\A{guid}/_apis/build/builds/[1-9][0-9]{{0,9}}(?:/artifacts)?\z") && Only("api-version");
         }

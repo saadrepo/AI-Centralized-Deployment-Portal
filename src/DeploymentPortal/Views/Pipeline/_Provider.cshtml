@@ -1,0 +1,8 @@
+@model string
+<label class="pipeline-provider">Source Provider
+    <select id="pipeline-provider" data-url="@Url.Action("Index", "Pipeline")">
+        <option value="Tfs2018" selected="@(Model == "Tfs2018")">TFS</option>
+        <option value="GitHub" selected="@(Model == "GitHub")">GitHub</option>
+        <option value="AzureDevOps" selected="@(Model == "AzureDevOps")">Azure DevOps</option>
+    </select>
+</label>

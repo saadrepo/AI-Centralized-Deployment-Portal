@@ -33,7 +33,16 @@
         if (select) select.replaceChildren(new Option(text, ''));
         if (operation) { cursors[operation] = null; const button = more(operation); if (button) button.hidden = true; }
     }
+    function pipelineLink() {
+        const link = document.getElementById('cloud-pipeline-link');
+        link.hidden = !source.value || !repository.value || !branch.value || (project && !project.value);
+        if (link.hidden) { link.removeAttribute('href'); return; }
+        const url = new URL(root.dataset.pipeline, location.href);
+        url.search = new URLSearchParams({ provider: root.dataset.provider, applicationKey: root.dataset.application, sourceId: source.value, project: project?.value || '', repository: repository.value, branch: branch.value });
+        link.href = url.href;
+    }
     function clearResults() {
+        pipelineLink();
         rows.replaceChildren(); artifacts.replaceChildren(); artifactPanel.hidden = true; selectedBuild = null;
         ['builds', 'artifacts'].forEach(op => { cursors[op] = null; more(op).hidden = true; });
     }

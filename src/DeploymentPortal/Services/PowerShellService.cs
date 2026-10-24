@@ -19,7 +19,7 @@ public class PowerShellService(IHostEnvironment environment, IOptions<Automation
     {
         Operation = operation.ToString(), server.HostNameOrIp, server.WinRmPort, server.UseSsl,
         credential.Username, credential.Password, Options = options.Value,
-        Deployment = deployment is null ? null : new { deployment.Id, deployment.SiteName, deployment.ApplicationName, deployment.AppPoolName, deployment.SourcePath, deployment.TargetPath, deployment.BackupPath, deployment.SitePort, deployment.SiteHostName, deployment.ExpectedState, deployment.CdPackage }
+        Deployment = deployment is null ? null : new { deployment.Id, deployment.SiteName, deployment.ApplicationName, deployment.AppPoolName, deployment.SourcePath, deployment.TargetPath, deployment.BackupPath, deployment.SitePort, deployment.SiteHostName, deployment.ExpectedState, deployment.CdPackage, deployment.CloudHealthUrl }
     }, operation == RemoteOperation.Deploy);
 
     public Task<RemoteResult> StageCdAsync(Server server, RemoteCredential credential, CdStageRequest request) => RunAsync(new

@@ -34,7 +34,18 @@ public class PipelineCloudEndpointTests
             return Task.FromResult(new CloudExplorerPage { Items = [new("1", "Source")] });
         }
     }
-    private static WebApplication Host(Explorer explorer, ClaimsPrincipal? principal = null)
+    private sealed class AuditCapture : ILoggerProvider, ILogger
+    {
+        public List<string> Events = [];
+        public ILogger CreateLogger(string categoryName) => this;
+        public void Dispose() { }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception, Func<TState, Exception?, string> formatter) {
+            if (id.Id == 4103) Events.Add(formatter(state, exception));
+        }
+    }
+    private static WebApplication Host(Explorer explorer, ClaimsPrincipal? principal = null, AuditCapture? audit = null)
     {
         var repo = new DirectoryInfo(AppContext.BaseDirectory);
         while (repo is not null && !Directory.Exists(Path.Combine(repo.FullName, "src", "DeploymentPortal", "Views"))) repo = repo.Parent;
@@ -43,6 +54,7 @@ public class PipelineCloudEndpointTests
             ContentRootPath = Path.Combine(repo!.FullName, "src", "DeploymentPortal")
         });
         builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
+        if (audit is not null) builder.Logging.AddProvider(audit);
         builder.Services.AddControllersWithViews().AddApplicationPart(typeof(PipelineController).Assembly);
         builder.Services.AddSourcesManagementAuthorization();
         builder.Services.Configure<SourcesManagementOptions>(o => o.AllowedUserSids = OperatingSystem.IsWindows() && principal?.Identity is WindowsIdentity identity ? [identity.User!.Value] : ["S-1-5-21-1-2-3-1001"]);
@@ -52,12 +64,24 @@ public class PipelineCloudEndpointTests
         // Index does not need or call any TFS transport. No external HTTP handler is installed.
         builder.Services.AddSingleton(new PipelineService(new HttpClient(), registry, Options.Create(new TfsCdOptions()), null!,
             NullLogger<PipelineService>.Instance, null!, Options.Create(new PipelineCiOptions())));
-        var app = builder.Build(); app.UseRouting(); app.UseAuthorization();
+        var app = builder.Build(); app.UseRouting(); app.UseMiddleware<CloudDenialAuditMiddleware>(); app.UseAuthorization();
         app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}"); return app;
     }
     private static HttpClient Client(WebApplication app) => new(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false }) {
         BaseAddress = new Uri(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single())
     };
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task DenialAuditIncludesRealAuthorizationAndCsrfMiddlewareShortCircuits(bool authenticated)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var capture = new AuditCapture(); var explorer = new Explorer();
+        await using var app = Host(explorer, authenticated ? new WindowsPrincipal(WindowsIdentity.GetCurrent()) : null, capture);
+        await app.StartAsync(); using var client = Client(app);
+        var response = await client.PostAsync("/Pipeline/Cloud/Approve", new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = "synthetic-secret" }));
+        Assert.Equal(authenticated ? HttpStatusCode.BadRequest : HttpStatusCode.Unauthorized, response.StatusCode);
+        var entry = Assert.Single(capture.Events); Assert.DoesNotContain("synthetic-secret", entry); Assert.Equal(0, explorer.Calls);
+        await app.StopAsync();
+    }
 
     [Theory]
     [InlineData("/Pipeline?provider=GitHub")]
@@ -146,5 +170,24 @@ public class PipelineCloudEndpointTests
         controller.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "original-tfs-user")], "ExistingHost"));
         Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(await controller.Index());
         Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestResult>(await controller.Index("Unknown"));
+    }
+    [Theory] [InlineData("Queue")] [InlineData("Prepare")] [InlineData("Approve")]
+    public async Task CloudMutationsRequireAntiforgeryEvenForApprovedWindowsUsers(string action)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var identity = WindowsIdentity.GetCurrent(); var explorer = new Explorer();
+        await using var app = Host(explorer, new WindowsPrincipal(identity)); await app.StartAsync(); using var client = Client(app);
+        var response = await client.PostAsync("/Pipeline/Cloud/" + action, new FormUrlEncodedContent(new Dictionary<string, string> { ["ticket"] = "untrusted", ["token"] = "untrusted" }));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode); Assert.Equal(0, explorer.Calls); await app.StopAsync();
+    }
+    [Fact] public async Task CloudMutationsRequireHttpsBeforeDispatch()
+    {
+        if (!OperatingSystem.IsWindows()) return; using var fixture = new CloudExecutionTests.Fixture();
+        var controller = new PipelineCloudController(new Explorer(), new Registry(), NullLogger<PipelineCloudController>.Instance, fixture.Flow) {
+            ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() }
+        };
+        controller.Request.Scheme = "http";
+        var result = Assert.IsType<Microsoft.AspNetCore.Mvc.ObjectResult>(await controller.Queue("untrusted", default));
+        Assert.Equal(403, result.StatusCode); Assert.Equal(0, fixture.Provider.Queues);
     }
 }

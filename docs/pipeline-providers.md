@@ -30,12 +30,13 @@ repository ownership, project membership and branch existence through the server
 Workflow/pipeline and run selection are not inferred from an application name.
 The application is browsing context, not a new deployment association.
 
-Cloud execution and approval buttons are always disabled. Only read endpoints
-exist under `/Pipeline/Cloud`; POST requests cannot queue builds or deploy.
+Cloud execution and approval buttons are disabled by default. GitHub has an
+explicitly authorized execution path described in [Controlled GitHub execution](github-controlled-execution.md).
+Azure DevOps remains read-only, including when execution flags are enabled.
 Existing provider run results and artifact metadata are shown. Expired GitHub
-artifacts are identified. Approval and deployment are explicitly **not queried**;
-successful CI or an available artifact never implies approval or deployment.
-Cloud logs, environment approvals and deployment records are outside this phase.
+artifacts are identified. Successful CI never implies approval or deployment.
+Refresh Status reads authoritative provider and tracked deployment status without
+dispatching a build or deployment.
 
 ## Security and implementation
 
@@ -44,7 +45,8 @@ policy, in addition to normal host authentication. TFS keeps its original guards
 The existing `ICloudBuildExplorer`, registered source service and `ISourceApiReader`
 are shared with `/TfsGitBuilds`. Credentials stay server-side and retain the
 existing DPAPI, ACL, provider/destination binding, revocation, redirect and URL
-allowlist checks. No new credentials or provider HTTP client are introduced.
+allowlist checks. The optional GitHub execution transport reuses these credentials
+with a separate narrowly scoped dispatch/download policy; the explorer stays GET-only.
 
 The explorer adds GET-only workflow/definition list/detail and exact-run reads.
 Reads validate provider, enabled source, repository, branch, selected definition,

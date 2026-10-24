@@ -8,6 +8,7 @@ public class PowerShellCdSecurityTests
     [Theory]
     [InlineData("CdPackageSecurity.Tests.ps1")]
     [InlineData("CdIisWorkflow.Tests.ps1")]
+    [InlineData("CloudIisHealth.Tests.ps1")]
     [InlineData("../PowerShell.Workflow.Tests.ps1")]
     public async Task FixedScriptsParseAndLocalPreservationRejectsUnsafeUpdates(string scriptName)
     {
@@ -30,6 +31,8 @@ public class PowerShellCdSecurityTests
             Assert.True(process.ExitCode == 0, stdout + (await errors));
             if (scriptName == "CdIisWorkflow.Tests.ps1")
                 Assert.Equal(9, System.Text.RegularExpressions.Regex.Matches(stdout, "(?m)^PASS:").Count);
+            if (scriptName == "CloudIisHealth.Tests.ps1")
+                Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(stdout, "(?m)^PASS:").Count);
             if (scriptName == "../PowerShell.Workflow.Tests.ps1")
                 Assert.Equal(11, System.Text.RegularExpressions.Regex.Matches(stdout, "(?m)^PASS:").Count);
         }

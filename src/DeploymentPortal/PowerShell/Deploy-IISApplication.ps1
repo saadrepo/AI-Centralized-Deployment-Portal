@@ -13,7 +13,8 @@ param(
     [int]$SitePort = 8080,
     [AllowEmptyString()][string]$SiteHostName = "",
     $CdPackage = $null,
-    [AllowEmptyString()][string]$CdSecurityFunctions = ""
+    [AllowEmptyString()][string]$CdSecurityFunctions = "",
+    [AllowEmptyString()][string]$CloudHealthUrl = ""
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -29,6 +30,7 @@ $success = $false
 $message = ''
 $cdVerified = $false
 $verification = ''
+$cloudHealthStatus = $null
 if ($CdPackage) { . ([scriptblock]::Create($CdSecurityFunctions)) }
 
 function Normalize-LocalPath([string]$Value) {
@@ -259,11 +261,25 @@ try {
             $cdVerified = $true
             $verification = 'Selected IIS application, physical path, dedicated pool, started site/pool and deployed file/configuration hashes verified. HTTP health was not checked.'
         }
+        if ($CloudHealthUrl) {
+            $stage = 'cloud HTTPS health verification'
+            $healthUri = $null
+            if (!$CdPackage -or ![Uri]::TryCreate($CloudHealthUrl, [UriKind]::Absolute, [ref]$healthUri) -or
+                $healthUri.Scheme -cne 'https' -or $healthUri.Port -ne 443 -or $healthUri.UserInfo -or $healthUri.Fragment -or $healthUri.Query) {
+                Stop-Deployment 'Approved cloud health endpoint is invalid.'
+            }
+            # No credentials, redirects, certificate bypass, or user-supplied URL.
+            $health = Invoke-WebRequest -Uri $healthUri.AbsoluteUri -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 30 -ErrorAction Stop
+            if ([int]$health.StatusCode -ne 200) { Stop-Deployment 'Cloud application health verification failed.' }
+            $cloudHealthStatus = 200
+            $verification = $verification.Replace('HTTP health was not checked.', '').Trim() + ' Approved HTTPS application health endpoint returned HTTP 200.'
+        }
         $poolStopped = $false
         $success = $true
         $message = "Deployment successful ($($plan.Mode)). Files deployed and IIS started."
         if ($backupReady) { $message += ' Previous files retained in backup.' }
-        $message += ' Application HTTP health was not checked.'
+        if ($cloudHealthStatus -eq 200) { $message += ' Approved HTTPS application health returned HTTP 200.' }
+        else { $message += ' Application HTTP health was not checked.' }
     }
 } catch {
     $reason = 'Check IIS permissions, filesystem access, package contents and the selected HTTP binding.'
@@ -301,7 +317,7 @@ try {
     if ($null -ne $mutex) { $mutex.Dispose() }
 }
 $result = [pscustomobject]@{ Success = $success; Message = $message; ServerName = $env:COMPUTERNAME; OperatingSystem = ''; BackupPath = $(if ($backupReady) { $BackupPath } else { '' });
-    StateFingerprint = $(if ($plan) { $plan.Fingerprint } else { '' }); DeploymentMode = $(if ($plan) { $plan.Mode } else { '' }); Verified = ($success -and $cdVerified); Verification = $verification }
+    StateFingerprint = $(if ($plan) { $plan.Fingerprint } else { '' }); DeploymentMode = $(if ($plan) { $plan.Mode } else { '' }); Verified = ($success -and $cdVerified); Verification = $verification; HealthHttpStatus = $cloudHealthStatus }
 if ($RemoteInvocation) { return $result }
 $result | ConvertTo-Json -Compress
 if (!$success) { exit 1 }

@@ -16,27 +16,37 @@ async function until(condition) {
     for (let i = 0; i < 1000; i++) { if (condition()) return; await new Promise(resolve => setImmediate(resolve)); }
     throw new Error('UI did not finish the expected state transition');
 }
-function environment(provider, search, artifactSize = 123) {
+function environment(provider, search, artifactSize = 123, controlled = false) {
     const elements = {};
     const ids = ['application', 'source', ...(provider === 'AzureDevOps' ? ['project'] : []), 'repository', 'branch', 'definition', 'build'];
     for (const id of ids) elements['cp-' + id] = new Element('select');
-    for (const id of ['cloud-pipeline-message', 'cp-status', 'cp-artifacts', 'cp-stages', 'cp-refresh']) elements[id] = new Element();
-    elements['cloud-pipeline'] = { dataset: { provider, base: '/Pipeline/Cloud/' } };
+    for (const id of ['cloud-pipeline-message', 'cp-status', 'cp-artifacts', 'cp-stages', 'cp-refresh', 'cp-run', 'cp-approve', 'cp-deployment-state']) elements[id] = new Element();
+    elements['cp-run'].disabled = elements['cp-approve'].disabled = true;
+    elements['cloud-pipeline'] = { dataset: { provider, base: '/Pipeline/Cloud/', execution: controlled ? 'controlled' : '' }, querySelector: () => ({ value: 'fixture-csrf' }) };
     const requests = [];
-    let fail = false, heldStatus;
+    let fail = false, heldStatus, confirm = false, approvalQueued = false;
+    const writes = [];
     const context = {
         document: { getElementById: id => elements[id], createElement: tag => new Element(tag) },
         Option: function(name, id) { return { textContent: name, value: String(id) }; },
         location: { href: 'https://portal.test/Pipeline' + search, search },
         URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
-        window: { addEventListener() {} },
+        window: { addEventListener() {}, confirm: () => confirm },
         fetch: async (url, options) => {
             assert.equal(options.credentials, 'same-origin'); assert.equal(options.cache, 'no-store');
-            assert.ok(!options.method || options.method === 'GET');
+            assert.ok(controlled || !options.method || options.method === 'GET');
             requests.push(new URL(url));
-            if (options.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+            if (options.signal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
             const q = url.searchParams, op = q.get('operation'); let body;
-            if (url.pathname.endsWith('/Applications')) body = [{ id: 'Portal', name: 'Portal' }];
+            if (controlled && ['Queue', 'Prepare', 'Approve'].some(action => url.pathname.endsWith('/' + action))) {
+                assert.equal(options.method, 'POST'); assert.equal(options.body.get('__RequestVerificationToken'), 'fixture-csrf');
+                writes.push(url.pathname.split('/').pop());
+                if (url.pathname.endsWith('/Queue')) { assert.equal(options.body.get('ticket'), 'queue-ticket'); body = { operationId: 'op-build', runId: 42, state: 'RunAccepted' }; }
+                else if (url.pathname.endsWith('/Prepare')) { assert.equal(options.body.get('ticket'), 'prepare-ticket'); body = { operationId: 'op-deploy', state: 'Prepared', approvalToken: 'approval-token', evidence: { provider, repository: 'app', branch: 'main', runId: 42, commit: 'abc', artifact: 'drop', environment: 'Test' } }; }
+                else { assert.equal(options.body.get('token'), 'approval-token'); approvalQueued = true; body = { operationId: 'op-deploy', deploymentId: 'deploy-1', state: 'Queued' }; }
+            } else if (url.pathname.endsWith('/Readiness')) body = { canQueue: true, canApprove: q.get('runId') === '42' && !approvalQueued, queueTicket: 'queue-ticket', prepareTicket: 'prepare-ticket', reason: 'Synthetic authorization only' };
+            else if (url.pathname.endsWith('/Operation')) body = { operationId: q.get('id'), state: approvalQueued ? 'Queued' : 'RunCompleted', runId: 42, deploymentId: approvalQueued ? 'deploy-1' : null, deploymentStatus: approvalQueued ? 'Queued' : null };
+            else if (url.pathname.endsWith('/Applications')) body = [{ id: 'Portal', name: 'Portal' }];
             else if (op === 'sources') body = { items: [{ id: '1', name: 'Registered source' }], next: q.get('cursor') ? null : '2' };
             else if (op === 'projects') body = { items: [{ id: 'project', name: 'Project' }] };
             else if (op === 'repositories') body = { items: [{ id: 'app', name: '<untrusted repository>' }] };
@@ -52,9 +62,9 @@ function environment(provider, search, artifactSize = 123) {
         }
     };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../src/DeploymentPortal/wwwroot/js/pipeline-cloud.js'), 'utf8'), context);
-    return { elements, requests, fail: () => { fail = true; }, hold: promise => { heldStatus = promise; } };
+    return { elements, requests, writes, confirm: answer => { confirm = answer; }, fail: () => { fail = true; }, hold: promise => { heldStatus = promise; } };
 }
-(async () => {
+if (require.main === module) (async () => {
     for (const provider of ['GitHub', 'AzureDevOps']) {
         const ui = environment(provider, '?applicationKey=Portal&sourceId=1&project=project&repository=app&branch=main');
         const el = id => ui.elements['cp-' + id];
@@ -113,3 +123,5 @@ function environment(provider, search, artifactSize = 123) {
     assert.equal(removedPreference, 'pipeline-build');
     console.log('PASS: provider switching clears all previous selectors');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+module.exports = { environment, until };

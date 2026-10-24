@@ -10,8 +10,88 @@
     const stages = document.getElementById('cp-stages'), refresh = document.getElementById('cp-refresh');
     const operations = { application: 'Applications', source: 'sources', project: 'projects', repository: 'repositories', branch: 'branches', definition: 'definitions', build: 'builds' };
     let version = 0, pending;
+    const controlled = root.dataset.execution === 'controlled' && root.dataset.provider === 'GitHub';
+    const runButton = document.getElementById('cp-run'), approveButton = document.getElementById('cp-approve');
+    let readiness = null, operationId = null, mutating = false;
+    function executionSelection() {
+        return { applicationKey: selects.application.value, provider: root.dataset.provider, sourceId: selects.source.value,
+            project: selects.project?.value || '', repository: selects.repository.value, branch: selects.branch.value,
+            definitionId: selects.definition.value, runId: selects.build.value || '0' };
+    }
+    function executionButtons() {
+        if (!controlled) return;
+        runButton.disabled = mutating || !readiness?.canQueue;
+        approveButton.disabled = mutating || !readiness?.canApprove;
+        refresh.disabled = mutating;
+    }
+    async function executionApi(action, args, post = false, signal) {
+        const url = new URL(root.dataset.base + action, location.href), body = new URLSearchParams(args);
+        if (post) body.set('__RequestVerificationToken', root.querySelector('[name="__RequestVerificationToken"]').value);
+        else url.search = body;
+        const response = await fetch(url, { method: post ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal,
+            headers: post ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}, body: post ? body : undefined });
+        if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Cloud operation unconfirmed. Refresh Status before retrying.');
+        const value = await response.json();
+        if (!response.ok) throw new Error(value.error || 'Cloud operation unavailable. Refresh Status.');
+        return value;
+    }
+    async function executionStatus(signal, turn) {
+        if (!controlled || !selects.definition.value) return;
+        const current = await executionApi('Readiness', executionSelection(), false, signal);
+        if (signal.aborted || turn !== version) return;
+        readiness = current;
+        operationId ||= current.operationId || null;
+        const panel = document.getElementById('cp-deployment-state');
+        panel.textContent = current.reason || 'Cloud execution is disabled.';
+        if (operationId) {
+            const operation = await executionApi('Operation', { id: operationId }, false, signal);
+            if (signal.aborted || turn !== version) return;
+            panel.textContent = `Operation ${operation.operationId} | ${operation.state} | Run ${operation.runId || 'unconfirmed'} | Deployment ${operation.deploymentStatus || 'not queued'}${operation.deploymentMessage ? ' | ' + operation.deploymentMessage : ''}`;
+            if (['Dispatching', 'Unconfirmed', 'RunAccepted'].includes(operation.state)) readiness.canQueue = false;
+            if (operation.deploymentId) readiness.canApprove = false;
+            if (operation.deploymentStatus) {
+                stages.children[3].querySelector('small').textContent = 'Approved';
+                stages.children[4].querySelector('small').textContent = operation.deploymentStatus;
+            }
+        }
+        executionButtons();
+    }
+    async function executeCloud(approve) {
+        if (mutating || !(approve ? readiness?.canApprove : readiness?.canQueue)) return;
+        const selected = JSON.stringify(executionSelection());
+        const ticket = approve ? readiness.prepareTicket : readiness.queueTicket;
+        mutating = true; executionButtons();
+        ids.forEach(id => { selects[id].disabled = true; });
+        pending?.abort(); version++;
+        try {
+            if (approve) {
+                const prepared = await executionApi('Prepare', { ticket }, true); operationId = prepared.operationId;
+                if (!prepared.approvalToken) throw new Error(`Preparation state: ${prepared.state}. Refresh Status; no deployment has been approved.`);
+                if (!window.confirm('Approve this exact cloud artifact and IIS target?\n' + JSON.stringify(prepared.evidence, null, 2))) {
+                    message.textContent = 'Approval declined. No deployment queued.'; return;
+                }
+                if (selected !== JSON.stringify(executionSelection())) throw new Error('Selection changed. Review again.');
+                const result = await executionApi('Approve', { token: prepared.approvalToken }, true); operationId = result.operationId;
+                message.textContent = 'Approved deployment queued. Use Refresh Status to track the existing worker.';
+            } else {
+                const result = await executionApi('Queue', { ticket }, true); operationId = result.operationId;
+                if (result.runId) { selects.build.add(new Option('Run ' + result.runId, String(result.runId))); selects.build.value = String(result.runId); }
+                message.textContent = result.state === 'RunAccepted' ? 'Provider accepted the exact run. Refresh Status to track it.' : 'Build outcome unconfirmed. Refresh Status; do not queue again.';
+            }
+        } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+        finally {
+            mutating = false; readiness = null;
+            ids.forEach(id => { selects[id].disabled = selects[id].options.length <= 1; });
+            executionButtons();
+        }
+    }
+    if (controlled) {
+        runButton.addEventListener('click', () => executeCloud(false));
+        approveButton.addEventListener('click', () => executeCloud(true));
+    }
     const node = (tag, value) => { const el = document.createElement(tag); el.textContent = value; return el; };
     function resetResults() {
+        readiness = null; executionButtons();
         status.textContent = 'Select an existing run to read provider status.';
         artifacts.replaceChildren(node('li', 'No run selected.'));
         stages.replaceChildren();
@@ -95,7 +175,8 @@
                 select.value = saved[id];
             }
             if (selects.build.value) await readStatus(controller.signal);
-            if (turn === version) message.textContent = 'Read-only provider data loaded. Select resources or refresh status.';
+            await executionStatus(controller.signal, turn);
+            if (turn === version) message.textContent = controlled ? 'Provider status loaded. Execution requires separate authorization and explicit confirmation.' : 'Read-only provider data loaded. Select resources or refresh status.';
         } catch (error) {
             if (turn === version) {
                 resetResults(); message.textContent = error.name === 'AbortError' ? 'Provider request timed out. Refresh Status to retry.' : error.message;
@@ -106,6 +187,8 @@
         }
     }
     ids.forEach((id, index) => selects[id].addEventListener('change', () => {
+        if (mutating) return;
+        operationId = null;
         // Every upstream change discards all downstream selections and status.
         if (!selects[id].value) { pending?.abort(); version++; clearAfter(index); refresh.disabled = false; return; }
         loadFrom(index);

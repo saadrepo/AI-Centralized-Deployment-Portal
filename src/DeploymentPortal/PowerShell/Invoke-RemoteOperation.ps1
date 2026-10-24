@@ -26,7 +26,7 @@ try {
         $d = $request.Deployment
         $arguments = @($d.SiteName, $d.ApplicationName, $d.AppPoolName, $d.SourcePath, $d.TargetPath, $d.BackupPath,
             $request.Options.BackupRoot, $true, ($request.Operation -eq 'PreviewDeployment'), $d.ExpectedState, $d.SitePort, $d.SiteHostName,
-            $d.CdPackage, $(if ($d.CdPackage) { [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'CdPackageSecurity.ps1')) } else { '' }))
+            $d.CdPackage, $(if ($d.CdPackage) { [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'CdPackageSecurity.ps1')) } else { '' }), $d.CloudHealthUrl)
         $result = Invoke-Command -Session $session -FilePath (Join-Path $PSScriptRoot 'Deploy-IISApplication.ps1') -ArgumentList $arguments
     } elseif ($request.Operation -eq 'StageCd') {
         $stage = 'private CD staging'

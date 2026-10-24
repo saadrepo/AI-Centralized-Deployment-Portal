@@ -4,13 +4,42 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace DeploymentPortal.Controllers;
 
-// Read-only surface. No cloud queue, approval, download or deployment actions exist.
+// Cloud browsing and explicit, default-off GitHub operations. No automatic deployment.
 [Route("Pipeline/Cloud")]
 [Authorize(Policy = SourcesManagementAuthorization.Policy)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class PipelineCloudController(ICloudBuildExplorer explorer, ISiteRegistry registry,
-    ILogger<PipelineCloudController> logger) : Controller
+    ILogger<PipelineCloudController> logger, CloudExecutionFlow? execution = null) : Controller
 {
+    [HttpGet("Readiness")]
+    public Task<IActionResult> Readiness([FromQuery] CloudSelection selection) => Execute(() => execution!.ReadinessAsync(selection, User));
+
+    [HttpGet("Operation")]
+    public Task<IActionResult> Operation(Guid id, CancellationToken ct) => Execute(() => execution!.StatusAsync(id, User, ct));
+
+    [HttpPost("Queue"), ValidateAntiForgeryToken]
+    public Task<IActionResult> Queue(string ticket, CancellationToken ct) => Execute(() => execution!.QueueAsync(ticket, User, ct), true);
+
+    [HttpPost("Prepare"), ValidateAntiForgeryToken]
+    public Task<IActionResult> Prepare(string ticket, CancellationToken ct) => Execute(() => execution!.PrepareAsync(ticket, User, ct), true);
+
+    [HttpPost("Approve"), ValidateAntiForgeryToken]
+    public Task<IActionResult> Approve(string token, CancellationToken ct) => Execute(() => execution!.ApproveAsync(token, User, ct), true);
+
+    private async Task<IActionResult> Execute(Func<Task<object>> action, bool mutation = false)
+    {
+        if (!ModelState.IsValid) { Denied("InvalidSelection"); return BadRequest(new { error = "Invalid cloud selection." }); }
+        if (execution is null) return mutation ? StatusCode(503, new { error = "Cloud execution unavailable." }) : Json(new { canQueue = false, canApprove = false });
+        if (mutation && !Request.IsHttps) { Denied("HttpsRequired"); return StatusCode(403, new { error = "HTTPS is required for cloud execution." }); }
+        try { return Json(await action()); }
+        catch (UnauthorizedAccessException) { Denied("Authorization"); return StatusCode(403, new { error = "The current Windows account is not authorized for this mapping and target." }); }
+        catch (CloudExecutionException ex) { Denied(ex.Code); return StatusCode(409, new { error = ex.Message, code = ex.Code }); }
+        catch (Exception ex) {
+            logger.LogWarning("Cloud execution request unconfirmed: Type={FailureType}, Reference={Reference}.", ex.GetType().Name, HttpContext.TraceIdentifier);
+            return StatusCode(502, new { error = "Cloud operation unconfirmed. Refresh Status and inspect its recorded outcome before retrying." });
+        }
+    }
+    private void Denied(string code) => logger.LogWarning("Cloud request denied. Code={Code}, Reference={Reference}.", code, HttpContext.TraceIdentifier);
     [HttpGet("Applications")]
     public IActionResult Applications() => Json(registry.List().Select(a => new ExplorerItem(a.Key, a.DisplayName)));
 

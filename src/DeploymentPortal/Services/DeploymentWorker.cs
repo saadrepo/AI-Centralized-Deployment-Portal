@@ -22,6 +22,8 @@ public class DeploymentWorker(IServiceScopeFactory scopes, ILogger<DeploymentWor
                 {
                     try
                     {
+                    // Reconcile cloud work under the same exclusive worker lock, before TFS recovery.
+                    await new CloudExecutionLifecycle(db, logger).ReconcileAsync(stoppingToken);
                     if (await CdSchema.AvailableAsync(db))
                     {
                         var interrupted = await db.CdDeploymentSources.Where(x => x.Deployment != null && x.Deployment.Status == DeploymentStatus.Running).ToListAsync(stoppingToken);
@@ -36,7 +38,8 @@ public class DeploymentWorker(IServiceScopeFactory scopes, ILogger<DeploymentWor
                     {
                         IQueryable<Deployment> query = db.Deployments.Include(x => x.Server);
                         if (await CdSchema.AvailableAsync(db)) query = query.Include(x => x.CdSource);
-                        var deployment = await query.Where(x => x.Status == DeploymentStatus.Queued).OrderBy(x => x.StartedAt).FirstOrDefaultAsync(stoppingToken);
+                        var deployment = await query.Where(x => x.Status == DeploymentStatus.Queued ||
+                            x.Status == DeploymentStatus.CloudQueued && x.DeploymentMode == CloudExecutionFlow.Mode).OrderBy(x => x.StartedAt).FirstOrDefaultAsync(stoppingToken);
                         if (deployment is not null) await scope.ServiceProvider.GetRequiredService<IDeploymentService>().ExecuteAsync(deployment);
                         db.ChangeTracker.Clear();
                         await Task.Delay(2000, stoppingToken);

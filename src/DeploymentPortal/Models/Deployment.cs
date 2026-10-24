@@ -1,12 +1,13 @@
 using System.ComponentModel.DataAnnotations;
 
 namespace DeploymentPortal.Models;
-public enum DeploymentStatus { Queued, Running, Successful, Failed }
+public enum DeploymentStatus { Queued, Running, Successful, Failed, CloudQueued, CloudRunning }
 public class Deployment
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public int ServerId { get; set; }
     public Server Server { get; set; } = null!;
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped] public string? CloudHealthUrl { get; set; }
     public CdDeploymentSource? CdSource { get; set; }
     [System.ComponentModel.DataAnnotations.Schema.NotMapped] public Services.CdRemoteSnapshot? CdPackage { get; set; }
     [MaxLength(80)] public string ApplicationName { get; set; } = "";

@@ -12,7 +12,7 @@ $source = $source.Replace("`$root = Join-Path ([Environment]::GetFolderPath('Com
 $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$AppPoolName")).Translate([Security.Principal.SecurityIdentifier])', "[Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-1001')")
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')", "[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 # Synthetic-only diagnostics: retain redaction and report location/type, never exception text or payloads.
-$source = $source.Replace("throw 'Source credential operation failed. Verify elevation, provider, organization binding, reference and private store permissions. Secret details are suppressed.'", 'throw ("Synthetic credential fixture failed. Line={0}; Type={1}. Secret details are suppressed." -f $_.InvocationInfo.ScriptLineNumber, $_.Exception.GetType().Name)')
+$source = $source.Replace("throw 'Source credential operation failed. Verify elevation, provider, organization binding, reference and private store permissions. Secret details are suppressed.'", 'throw ("Synthetic credential fixture failed. Line={0}; Type={1}; HResult={2}. Secret details are suppressed." -f $_.InvocationInfo.ScriptLineNumber, $_.Exception.GetType().Name, $_.Exception.GetBaseException().HResult)')
 # Use the equivalent owner/DACL API without requesting audit privileges.
 $source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
 # Adapt the synthetic SYSTEM role for restricted Windows test tokens only.

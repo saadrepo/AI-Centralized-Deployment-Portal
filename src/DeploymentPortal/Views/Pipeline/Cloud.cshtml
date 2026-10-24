@@ -1,7 +1,7 @@
 @model string
 @{ ViewData["Title"] = "CI/CD Pipeline"; var github = Model == "GitHub"; }
 @section Styles { <link rel="stylesheet" href="~/css/pipeline.css" asp-append-version="true" /> }
-<div class="pipeline-page" id="cloud-pipeline" data-provider="@Model" data-base="@Url.Content("~/Pipeline/Cloud/")">
+<div class="pipeline-page" id="cloud-pipeline" data-execution="@(github ? "controlled" : "read-only")" data-provider="@Model" data-base="@Url.Content("~/Pipeline/Cloud/")">
     <header class="pipeline-heading"><h1>CI/CD Pipeline</h1><p>Browse @(github ? "GitHub Actions" : "Azure DevOps") builds and artifact metadata.</p></header>
     <partial name="_Provider" model="Model" />
     @Html.AntiForgeryToken()
@@ -16,15 +16,15 @@
         <label>Existing @(github ? "workflow run" : "pipeline build")<select id="cp-build" disabled></select></label>
     </section>
     <div class="pipeline-actions">
-        <button class="btn btn-primary" disabled title="Cloud build execution is not implemented.">Run CI Build</button>
-        <button class="btn btn-outline-primary" disabled title="Cloud approval and deployment are not implemented.">Approve &amp; Deploy</button>
+        <button id="cp-run" class="btn btn-primary" type="button" disabled title="Separate live authorization is required.">Run CI Build</button>
+        <button id="cp-approve" class="btn btn-outline-primary" type="button" disabled title="A validated artifact and explicit approval are required.">Approve &amp; Deploy</button>
         <button class="btn btn-outline-primary" id="cp-refresh" type="button">Refresh Status</button>
     </div>
-    <p class="pipeline-note">Read-only. Cloud build execution, approval and deployment are not implemented. Application selection is browsing context; it does not authorize deployment.</p>
+    <p class="pipeline-note">@(github ? "GitHub execution is disabled unless separately authorized. Deployment requires a validated artifact review and your confirmation." : "Azure DevOps is read-only. Build and deployment execution are not implemented.")</p>
     <section class="pipeline-stages" id="cp-stages" aria-label="Provider pipeline stages"></section>
     <section class="pipeline-card"><header><h2>Build status</h2></header><div id="cp-status" class="pipeline-branches">Select a workflow or pipeline and an existing run.</div></section>
     <section class="pipeline-card"><header><h2>Artifact status</h2></header><ul id="cp-artifacts"><li>No run selected.</li></ul></section>
-    <section class="pipeline-card"><header><h2>Approval and deployment status</h2></header><p class="pipeline-branches">Approval: not queried. Deployment: not queried. A successful CI build does not confirm deployment.</p></section>
+    <section class="pipeline-card"><header><h2>Approval and deployment status</h2></header><p id="cp-deployment-state" class="pipeline-branches">No portal deployment approved for this selection. A successful CI build never starts deployment automatically.</p></section>
 </div>
 @section Scripts {
     <script src="~/js/pipeline-provider.js" asp-append-version="true"></script>

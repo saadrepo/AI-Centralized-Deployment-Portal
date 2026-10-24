@@ -84,6 +84,67 @@ namespace DeploymentPortal.Data.Migrations
                     b.ToTable("CdDeploymentSources");
                 });
 
+            modelBuilder.Entity("DeploymentPortal.Models.CloudExecutionRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorSid")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("AuditJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ProtectedData")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<long?>("RunId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("UniqueScope")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeploymentId")
+                        .IsUnique()
+                        .HasFilter("[DeploymentId] IS NOT NULL");
+
+                    b.HasIndex("UniqueScope")
+                        .IsUnique()
+                        .HasFilter("[UniqueScope] IS NOT NULL");
+
+                    b.ToTable("CloudExecutions");
+                });
+
             modelBuilder.Entity("DeploymentPortal.Models.Deployment", b =>
                 {
                     b.Property<Guid>("Id")

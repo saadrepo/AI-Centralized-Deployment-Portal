@@ -22,7 +22,7 @@ public interface ISourceCredentialProvider
         Uri requestUri, CancellationToken cancellationToken = default);
 }
 
-public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISourceCredentialProvider, ISourceCredentialMetadata, ISourceApiReader
+public sealed partial class SourceCredentialProvider(IHostEnvironment environment) : ISourceCredentialProvider, ISourceCredentialMetadata, ISourceApiReader
 {
     public IReadOnlyList<SourceCredentialMetadata> List()
     {

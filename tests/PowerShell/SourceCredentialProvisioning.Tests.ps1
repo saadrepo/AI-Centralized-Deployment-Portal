@@ -1,7 +1,9 @@
 # Unprivileged synthetic fixture: never invokes the elevated production script.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$fixture = Join-Path $repo ('.tools\source-credential-tests\' + [guid]::NewGuid().ToString('N'))
+. (Join-Path $PSScriptRoot 'ProvisioningFixture.ps1')
+$fixtureContext = New-ProvisioningFixture $repo
+$fixture = Join-Path $fixtureContext.Root 'store'
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $source = [IO.File]::ReadAllText((Join-Path $repo 'tools\Manage-SourceCredential.ps1'))
 if (!$source.Contains('#Requires -RunAsAdministrator')) { throw 'Elevation gate missing.' }
@@ -11,6 +13,9 @@ $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$Ap
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')", "[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 # Synthetic-only diagnostics: retain redaction and report location/type, never exception text or payloads.
 $source = $source.Replace("throw 'Source credential operation failed. Verify elevation, provider, organization binding, reference and private store permissions. Secret details are suppressed.'", 'throw ("Synthetic credential fixture failed. Line={0}; Type={1}. Secret details are suppressed." -f $_.InvocationInfo.ScriptLineNumber, $_.Exception.GetType().Name)')
+# Test-only equivalent owner/DACL persistence and restricted-token identity.
+$source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+$source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $manage = [scriptblock]::Create($source)
 $global:SourceTestToken = 'synthetic-only-first'
 function Read-Host { param($Prompt,[switch]$AsSecureString)
@@ -68,9 +73,9 @@ try {
         $originalAcl = Get-Acl -LiteralPath $file
         $badAcl = Get-Acl -LiteralPath $file
         $badAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow'))
-        Set-Acl -LiteralPath $file -AclObject $badAcl
+        Set-ProvisioningFixtureAcl -LiteralPath $file -AclObject $badAcl
         Assert-Rejected { & $manage -Action List }
-        Set-Acl -LiteralPath $file -AclObject $originalAcl
+        Set-ProvisioningFixtureAcl -LiteralPath $file -AclObject $originalAcl
         & $manage -Action Revoke -Reference $result.Reference | Out-Null
         Assert-True (!(Test-Path -LiteralPath $file)) 'Revocation failed.'
         Assert-Rejected { & $manage -Action Rotate -Reference $result.Reference -Provider $provider -Destination $url }
@@ -80,11 +85,7 @@ try {
     Assert-True (@(Get-ChildItem -LiteralPath $fixture -Filter '*.tmp').Count -eq 0) 'Temporary file left behind.'
     Write-Output 'PASS: Source credential binding, rotation, revocation, ACL rejection and redaction.'
 } finally {
+    Remove-ProvisioningFixture $fixtureContext
     Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $fixture) {
-        $resolved = [IO.Path]::GetFullPath($fixture)
-        $expected = [IO.Path]::GetFullPath((Join-Path $repo '.tools\source-credential-tests')) + [IO.Path]::DirectorySeparatorChar
-        if (!$resolved.StartsWith($expected,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe fixture cleanup.' }
-        Remove-Item -LiteralPath $resolved -Recurse -Force
-    }
+    Remove-Variable SourceTestToken -Scope Global
 }

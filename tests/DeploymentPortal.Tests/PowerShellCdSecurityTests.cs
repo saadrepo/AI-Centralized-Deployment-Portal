@@ -21,6 +21,7 @@ public class PowerShellCdSecurityTests
         try
         {
             var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            WindowsPowerShellTestEnvironment.ConfigureModulePath(start);
             foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-File", Path.Combine(repo!.FullName, "tests", "PowerShell", scriptName), "-Root", root, "-Scripts", Path.Combine(repo.FullName, "src", "DeploymentPortal", "PowerShell") }) start.ArgumentList.Add(arg);
             using var process = Process.Start(start)!;
             var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();

@@ -1,9 +1,11 @@
 # Run with Windows PowerShell 5.1, without elevation or real credentials.
-# Adapt only the fixture path and identities: the provisioning algorithm, prompt,
-# DPAPI, file rotation and ACL operations execute from the actual script source.
+# Adapt fixture paths/identities and the owner/DACL persistence API. The actual
+# provisioning algorithm, secure prompt, DPAPI and file rotation still execute.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$fixture = Join-Path $repo ('.tools\credential-tests\' + [guid]::NewGuid().ToString('N'))
+. (Join-Path $PSScriptRoot 'ProvisioningFixture.ps1')
+$fixtureContext = New-ProvisioningFixture $repo
+$fixture = Join-Path $fixtureContext.Root 'store'
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $source = [IO.File]::ReadAllText((Join-Path $repo 'tools\Provision-WinRmCredential.ps1'))
 $source = $source -replace '(?m)^#Requires.*\r?\n', ''
@@ -12,6 +14,9 @@ $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$Ap
 # The test user stands in for the provisioning administrator, without elevating.
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')", "[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 $source = $source.Replace("throw 'Credential provisioning failed. Verify administrator rights, the IIS pool identity and private store permissions. No password details are reported.'", 'throw $_') # Synthetic test diagnostics only.
+# Test-only equivalent owner/DACL persistence and restricted-token identity.
+$source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+$source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $provision = [scriptblock]::Create($source)
 $global:PromptCount = 0
 $global:TestPassword = 'synthetic-provisioning-test-only'
@@ -50,9 +55,6 @@ try {
     Assert-True ($global:PromptCount -eq 4) 'Secure prompt was not used for every provisioning.'
     Write-Host 'PASS: secure prompt, DPAPI binding, protected ACLs, read-only pool grant, rotation, HTTPS separation, empty-password rejection and preservation.'
 } finally {
-    # The generated fixture is verified within the repository test root before cleanup.
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.tools\credential-tests')) + '\'
-    if (![IO.Path]::GetFullPath($fixture).StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe fixture cleanup path.' }
-    if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
+    Remove-ProvisioningFixture $fixtureContext
     Remove-Variable TestPassword,PromptCount -Scope Global
 }

@@ -16,7 +16,7 @@ async function until(condition) {
     for (let i = 0; i < 1000; i++) { if (condition()) return; await new Promise(resolve => setImmediate(resolve)); }
     throw new Error('UI did not finish the expected state transition');
 }
-function environment(provider, search) {
+function environment(provider, search, artifactSize = 123) {
     const elements = {};
     const ids = ['application', 'source', ...(provider === 'AzureDevOps' ? ['project'] : []), 'repository', 'branch', 'definition', 'build'];
     for (const id of ids) elements['cp-' + id] = new Element('select');
@@ -46,7 +46,7 @@ function environment(provider, search) {
             else if (op === 'status') {
                 if (heldStatus) await heldStatus;
                 body = { builds: [{ id: 42, number: '42', status: 'completed', result: 'success', branch: 'main', commit: 'abc' }] };
-            } else if (op === 'artifacts') body = { artifacts: [{ name: 'deployment-portal-build', type: 'Workflow artifact', size: 123 }] };
+            } else if (op === 'artifacts') body = { artifacts: [{ name: 'deployment-portal-build', type: 'Workflow artifact', size: artifactSize }] };
             else throw new Error('Unexpected read: ' + url);
             return { ok: !fail, status: fail ? 403 : 200, headers: { get: () => 'application/json' }, json: async () => body };
         }
@@ -68,6 +68,9 @@ function environment(provider, search) {
         await until(() => !el('refresh').disabled);
         assert.match(el('status').textContent, /success/);
         assert.match(el('artifacts').children[0].textContent, /deployment-portal-build/);
+        const separator = provider === 'GitHub' ? ' | ' : ' ? ';
+        assert.equal(el('status').textContent, ['#42', 'success', 'main', 'Commit abc'].join(separator));
+        assert.equal(el('artifacts').children[0].textContent, ['deployment-portal-build', 'Workflow artifact', '123 bytes'].join(separator));
         assert.equal(el('stages').children[3].querySelector('small').textContent, 'Not queried');
         // A late response for an old run cannot overwrite a new branch selection.
         let release; ui.hold(new Promise(resolve => { release = resolve; }));
@@ -84,6 +87,15 @@ function environment(provider, search) {
         assert.ok(ui.requests.every(q => !/Queue|Approve|Deploy|dispatch/i.test(q.pathname)));
         console.log('PASS:', provider, 'handoff, pagination, status, stale-response isolation, authorization errors and GET-only reads');
     }
+    const withoutSize = environment('GitHub', '?applicationKey=Portal&sourceId=1&repository=app&branch=main', null);
+    const getWithoutSize = id => withoutSize.elements['cp-' + id];
+    await until(() => !getWithoutSize('refresh').disabled);
+    getWithoutSize('definition').value = '7'; getWithoutSize('definition').listeners.change();
+    await until(() => !getWithoutSize('refresh').disabled);
+    getWithoutSize('build').value = '42'; getWithoutSize('build').listeners.change();
+    await until(() => !getWithoutSize('refresh').disabled);
+    assert.equal(getWithoutSize('artifacts').children[0].textContent, 'deployment-portal-build | Workflow artifact');
+    console.log('PASS: GitHub status separators with known and unknown artifact sizes; Azure formatting preserved');
     let navigated, removedPreference;
     const select = new Element('select'); select.value = 'AzureDevOps'; select.dataset = { url: '/Pipeline' };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../src/DeploymentPortal/wwwroot/js/pipeline-provider.js'), 'utf8'), {

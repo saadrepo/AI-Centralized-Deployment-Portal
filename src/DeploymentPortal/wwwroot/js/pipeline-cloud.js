@@ -2,6 +2,7 @@
     'use strict';
     const root = document.getElementById('cloud-pipeline');
     if (!root) return;
+    const statusSeparator = root.dataset.provider === 'GitHub' ? ' | ' : ' ? ';
     const ids = ['application', 'source', ...(root.dataset.provider === 'AzureDevOps' ? ['project'] : []), 'repository', 'branch', 'definition', 'build'];
     const selects = Object.fromEntries(ids.map(id => [id, document.getElementById(`cp-${id}`)]));
     const message = document.getElementById('cloud-pipeline-message');
@@ -66,8 +67,8 @@
             seen.add(cursor);
         }
         if (signal.aborted) return;
-        status.textContent = `#${run.number} ? ${run.result || run.status} ? ${run.branch} ? Commit ${run.commit}`;
-        artifacts.replaceChildren(...(values.length ? values.map(a => node('li', `${a.name} ? ${a.type}${a.size == null ? '' : ` ? ${a.size} bytes`}`)) : [node('li', 'No artifacts returned for this run.')]));
+        status.textContent = [`#${run.number}`, run.result || run.status, run.branch, `Commit ${run.commit}`].join(statusSeparator);
+        artifacts.replaceChildren(...(values.length ? values.map(a => node('li', [a.name, a.type, ...(a.size == null ? [] : [`${a.size} bytes`])].join(statusSeparator))) : [node('li', 'No artifacts returned for this run.')]));
         const state = ['success', 'succeeded'].includes(run.result) ? 'completed' : ['failure', 'failed', 'cancelled', 'canceled', 'timed_out', 'partiallySucceeded'].includes(run.result) ? 'failed' : run.status === 'completed' ? 'pending' : 'running';
         stages.children[0].className = 'pipeline-stage completed'; stages.children[0].querySelector('small').textContent = selects.branch.value;
         stages.children[1].className = `pipeline-stage ${state}`; stages.children[1].querySelector('small').textContent = run.result || run.status;

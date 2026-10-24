@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$fixture = Join-Path $repo ('.tools\storage-tests\' + [guid]::NewGuid().ToString('N'))
+. (Join-Path $PSScriptRoot 'ProvisioningFixture.ps1')
+$fixtureContext = New-ProvisioningFixture $repo
+$fixture = $fixtureContext.Root
 $keyFixture = Join-Path $fixture 'keys'
 $cdFixture = Join-Path $fixture 'staging'
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -10,6 +12,10 @@ $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$Ap
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')","[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 $source = $source.Replace("`$keyRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'DeploymentPortal\DataProtectionKeys'","`$keyRoot = '$keyFixture'")
 $source = $source.Replace("'C:\DeploymentPortalData\CdStaging'","'$cdFixture'")
+# Use the equivalent owner/DACL API without requesting audit privileges.
+$source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+# Adapt the synthetic SYSTEM role for restricted Windows test tokens only.
+$source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $initialize = [scriptblock]::Create($source)
 try {
     & $initialize
@@ -33,7 +39,5 @@ try {
     if (!$rejected) { throw 'Unexpected key directory content was accepted.' }
     Write-Host 'PASS: private key/staging ACLs, inheritable pool Modify, existing key preservation, idempotency and unrelated-content rejection.'
 } finally {
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.tools\storage-tests')) + '\'
-    if (![IO.Path]::GetFullPath($fixture).StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe fixture cleanup.' }
-    if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
+    Remove-ProvisioningFixture $fixtureContext
 }

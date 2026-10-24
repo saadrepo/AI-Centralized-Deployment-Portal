@@ -1,0 +1,68 @@
+name: Deployment Portal build
+
+# Build-only CI, independent of the TFS deployment pipeline.
+on:
+  push:
+    branches:
+      - Dev
+      - main
+      - Deployment-Portal-Branch
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Restore, build, test and publish
+    # Exercises Windows ACL and Windows PowerShell tests as well as managed tests.
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore dependencies
+        run: dotnet restore DeploymentPortal.sln
+
+      - name: Build Release solution
+        run: dotnet build DeploymentPortal.sln --configuration Release --no-restore
+
+      - name: Run automated tests
+        run: dotnet test tests/DeploymentPortal.Tests/DeploymentPortal.Tests.csproj --configuration Release --no-build --no-restore
+
+      - name: Create clean publish directory
+        id: publish-directory
+        run: |
+          # A new temporary directory prevents stale files entering the artifact.
+          $publishDirectory = Join-Path $env:RUNNER_TEMP ("deployment-portal-publish-" + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $publishDirectory -ErrorAction Stop | Out-Null
+          "path=$publishDirectory" >> $env:GITHUB_OUTPUT
+
+      - name: Publish application
+        env:
+          PUBLISH_DIRECTORY: ${{ steps.publish-directory.outputs.path }}
+        run: dotnet publish src/DeploymentPortal/DeploymentPortal.csproj --configuration Release --no-build --no-restore --output "$env:PUBLISH_DIRECTORY"
+
+      - name: Upload published application
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deployment-portal-build
+          path: ${{ steps.publish-directory.outputs.path }}
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7

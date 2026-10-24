@@ -65,7 +65,7 @@
             "SiteName": "CdDemo",
             "TargetPath": "C:\\Sites\\CdDemo",
             "ApplicationName": "/",
-            "ApplicationPool": null
+            "ApplicationPool": "CdDemo"
           }
         ]
       }

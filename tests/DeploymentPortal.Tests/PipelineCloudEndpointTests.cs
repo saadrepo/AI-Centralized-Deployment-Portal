@@ -88,6 +88,22 @@ public class PipelineCloudEndpointTests
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(actions, "<button[^>]*disabled").Count);
         Assert.Equal(provider == "AzureDevOps", html.Contains("id=\"cp-project\""));
         Assert.DoesNotContain("js/pipeline.js", html); Assert.DoesNotContain("type=\"password\"", html);
+        Assert.Contains("role=\"combobox\"", html);
+        Assert.Contains("aria-expanded=\"false\"", html);
+        Assert.Contains("role=\"listbox\"", html);
+        Assert.Contains($"id=\"provider-option-{provider}\"", html);
+        Assert.Matches($"id=\"provider-option-{provider}\"[^>]*aria-selected=\"true\"", html);
+        Assert.Matches("pipeline-cloud\\.js\\?v=[^\"]+", html);
+        Assert.Matches("pipeline-provider\\.js\\?v=[^\"]+", html);
+        Assert.Matches("icons/providers/github\\.svg\\?v=[^\"]+", html);
+        Assert.Matches("icons/providers/azuredevops\\.svg\\?v=[^\"]+", html);
+        Assert.Matches("icons/providers/tfs-server\\.svg\\?v=[^\"]+", html);
+        var webRoot = Path.Combine(app.Services.GetRequiredService<IHostEnvironment>().ContentRootPath, "wwwroot");
+        foreach (var asset in new[] { "js/pipeline-cloud.js", "js/pipeline-provider.js", "css/pipeline.css" }) {
+            var hash = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(
+                System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(webRoot, asset))));
+            Assert.Contains(asset + "?v=" + hash, html);
+        }
         Assert.Equal(0, explorer.Calls); await app.StopAsync();
     }
     [Theory]

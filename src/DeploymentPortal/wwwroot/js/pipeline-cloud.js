@@ -46,7 +46,7 @@
         const items = []; let cursor = null; const seen = new Set();
         for (let page = 0; page < 100; page++) {
             const data = await api(operations[id], signal, cursor);
-            items.push(...(id === 'application' ? data : id === 'build' ? data.builds.map(b => ({ id: String(b.id), name: `#${b.number} ? ${b.result || b.status}` })) : data.items));
+            items.push(...(id === 'application' ? data : id === 'build' ? data.builds.map(b => ({ id: String(b.id), name: [`#${b.number}`, b.result || b.status].join(statusSeparator) })) : data.items));
             cursor = data.next;
             if (!cursor) return items;
             if (seen.has(cursor)) throw new Error('Provider returned repeated pagination. Refresh status to retry.');

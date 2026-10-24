@@ -64,6 +64,7 @@ function environment(provider, search, artifactSize = 123) {
         assert.ok(ui.requests.some(q => q.searchParams.get('cursor') === '2'));
         el('definition').value = '7'; el('definition').listeners.change();
         await until(() => !el('refresh').disabled);
+        assert.equal(el('build').options[1].textContent, provider === 'GitHub' ? '#42 | success' : '#42 ? success');
         el('build').value = '42'; el('build').listeners.change();
         await until(() => !el('refresh').disabled);
         assert.match(el('status').textContent, /success/);
@@ -72,10 +73,15 @@ function environment(provider, search, artifactSize = 123) {
         assert.equal(el('status').textContent, ['#42', 'success', 'main', 'Commit abc'].join(separator));
         assert.equal(el('artifacts').children[0].textContent, ['deployment-portal-build', 'Workflow artifact', '123 bytes'].join(separator));
         assert.equal(el('stages').children[3].querySelector('small').textContent, 'Not queried');
+        el('refresh').listeners.click();
+        await until(() => !el('refresh').disabled);
+        assert.equal(el('build').value, '42');
+        assert.equal(el('build').options[1].textContent, provider === 'GitHub' ? '#42 | success' : '#42 ? success');
+        assert.equal(el('status').textContent, ['#42', 'success', 'main', 'Commit abc'].join(separator));
         // A late response for an old run cannot overwrite a new branch selection.
         let release; ui.hold(new Promise(resolve => { release = resolve; }));
         el('build').listeners.change();
-        await until(() => ui.requests.filter(q => q.searchParams.get('operation') === 'status').length === 2);
+        await until(() => ui.requests.filter(q => q.searchParams.get('operation') === 'status').length === 3);
         el('branch').value = 'Dev'; el('branch').listeners.change(); release();
         await until(() => !el('refresh').disabled);
         assert.equal(el('build').value, ''); assert.equal(el('definition').value, '');
@@ -99,7 +105,7 @@ function environment(provider, search, artifactSize = 123) {
     let navigated, removedPreference;
     const select = new Element('select'); select.value = 'AzureDevOps'; select.dataset = { url: '/Pipeline' };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../src/DeploymentPortal/wwwroot/js/pipeline-provider.js'), 'utf8'), {
-        document: { getElementById: () => select }, URL, URLSearchParams,
+        document: { getElementById: id => id === 'pipeline-provider' ? select : null }, URL, URLSearchParams,
         sessionStorage: { removeItem: key => { removedPreference = key; } },
         location: { href: 'https://portal.test/Pipeline?provider=GitHub&sourceId=1&repository=old&branch=main', assign: url => { navigated = new URL(url); } }
     });

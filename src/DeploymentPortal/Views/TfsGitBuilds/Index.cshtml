@@ -3,6 +3,19 @@
     ViewData["Title"] = "TFS Git CI Builds";
     string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 }
+<form method="get" class="mb-4">
+    <input type="hidden" name="applicationKey" value="@Model.ApplicationKey" />
+    <label for="source-provider" class="form-label">Source Provider</label>
+    <select id="source-provider" name="provider" class="form-select mb-2">
+        <option value="Tfs2018" selected="@(Model.Provider == "Tfs2018")">TFS 2018</option>
+        <option value="GitHub" selected="@(Model.Provider == "GitHub")">GitHub</option>
+        <option value="AzureDevOps" selected="@(Model.Provider == "AzureDevOps")">Azure DevOps Services</option>
+    </select>
+    <button type="submit" class="btn btn-outline-primary">Load provider</button>
+</form>
+@if (Model.Provider != "Tfs2018") {
+    <partial name="_CloudExplorer" model="Model" />
+} else {
 <div class="page-heading">
     <div><div class="eyebrow">TFS Git</div><h1>CI Builds <span class="badge bg-secondary fs-6">Read-only</span></h1><p>@(Model.ApplicationKey == "Portal" ? "deployment-portal-poc-CI" : Model.ApplicationKey) · Dev · Latest 25 builds</p></div>
     <a class="btn btn-outline-primary" asp-action="Index" asp-route-applicationKey="@Model.ApplicationKey">Refresh builds</a>
@@ -44,4 +57,8 @@ else
             </table>
         </div>
     </section>
+}
+}
+@section Scripts {
+    @if (Model.Provider != "Tfs2018") { <script src="~/js/cloud-build-explorer.js" asp-append-version="true"></script> }
 }

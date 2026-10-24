@@ -1,0 +1,21 @@
+@model DeploymentPortal.ViewModels.Tfs.TfsGitCiBuildsPageViewModel
+<section id="cloud-build-explorer" data-provider="@Model.Provider" data-url="@Url.Action("Browse", "TfsGitBuilds")" aria-busy="false">
+<div class="page-heading"><div><h1>CI Builds <span class="badge bg-secondary fs-6">Read-only</span></h1><p>@(Model.Provider == "GitHub" ? "GitHub workflow runs" : "Azure DevOps builds")</p></div></div>
+<div class="panel p-3 mb-3"><div class="row g-3">
+    <div class="col-md-6"><label for="cloud-source" class="form-label">@(Model.Provider == "GitHub" ? "GitHub Source" : "Azure DevOps Source")</label><select id="cloud-source" class="form-select" disabled><option value="">Loading sources…</option></select></div>
+    @if (Model.Provider == "AzureDevOps") {
+        <div class="col-md-6"><label for="cloud-project" class="form-label">Project</label><select id="cloud-project" class="form-select" disabled><option value="">Select a source first</option></select><button type="button" class="btn btn-link" id="more-projects" hidden>Load more projects</button></div>
+    }
+    <div class="col-md-6"><label for="cloud-repository" class="form-label">Repository</label><select id="cloud-repository" class="form-select" disabled><option value="">Select a source first</option></select><button type="button" class="btn btn-link" id="more-repositories" hidden>Load more repositories</button></div>
+    <div class="col-md-6"><label for="cloud-branch" class="form-label">Branch</label><select id="cloud-branch" class="form-select" disabled><option value="">Select a repository first</option></select><button type="button" class="btn btn-link" id="more-branches" hidden>Load more branches</button></div>
+    <div class="col-12 d-flex gap-2"><button type="button" class="btn btn-primary" id="cloud-load" disabled>Load Builds</button><button type="button" class="btn btn-outline-primary" id="cloud-refresh" disabled>Refresh Builds</button><button type="button" class="btn btn-outline-secondary" id="cloud-retry">Reload Sources</button></div>
+</div></div>
+<p id="cloud-status" role="status" aria-live="polite"></p>
+<div id="cloud-error" class="alert alert-danger" role="alert" hidden></div>
+<section class="panel"><div class="panel-heading"><h2>Recent builds</h2></div><div class="table-responsive">
+<table class="table align-middle"><thead><tr><th scope="col">Run / build number</th><th scope="col">Branch</th><th scope="col">Commit</th><th scope="col">Status</th><th scope="col">Conclusion / result</th><th scope="col">Artifacts</th></tr></thead><tbody id="cloud-builds"></tbody></table>
+</div><button type="button" class="btn btn-link" id="more-builds" hidden>Next builds</button></section>
+<section class="panel mt-3" id="cloud-artifacts" tabindex="-1" hidden><div class="panel-heading"><h2>Artifacts <span id="artifact-build"></span></h2></div>
+<p class="px-3">Artifact metadata only. These controls do not download packages or start builds or deployments.</p><ul id="cloud-artifact-list"></ul><button type="button" class="btn btn-link" id="more-artifacts" hidden>Load more artifacts</button></section>
+<noscript><p class="alert alert-warning">Enable JavaScript to browse cloud repositories, branches and builds. TFS browsing remains available through Source Provider.</p></noscript>
+</section>

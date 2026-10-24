@@ -2,6 +2,7 @@ namespace DeploymentPortal.ViewModels.Tfs;
 
 public sealed class TfsGitCiBuildsPageViewModel
 {
+    public string Provider { get; set; } = "Tfs2018";
     public string ApplicationKey { get; set; } = "Portal";
     public IReadOnlyList<DeploymentPortal.Services.RegistryApplication> Applications { get; set; } = [];
     public IReadOnlyList<TfsGitCiBuildViewModel> Builds { get; set; } = [];

@@ -22,7 +22,7 @@ public interface ISourceCredentialProvider
         Uri requestUri, CancellationToken cancellationToken = default);
 }
 
-public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISourceCredentialProvider, ISourceCredentialMetadata
+public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISourceCredentialProvider, ISourceCredentialMetadata, ISourceApiReader
 {
     public IReadOnlyList<SourceCredentialMetadata> List()
     {
@@ -157,6 +157,30 @@ public sealed class SourceCredentialProvider(IHostEnvironment environment) : ISo
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw new OperationCanceledException(cancellationToken); }
         catch { throw new InvalidOperationException(UnavailableMessage); }
+        finally { if (secret is not null) CryptographicOperations.ZeroMemory(secret); }
+    }
+
+    public async Task<SourceApiPage> ReadJsonAsync(string reference, SourceTokenProvider provider, string destination, Uri requestUri, CancellationToken cancellationToken)
+    {
+        byte[]? secret = null;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        try {
+            if (!SourceExplorerRequestPolicy.Allows(provider, destination, requestUri)) throw new InvalidOperationException();
+            secret = Read(reference, provider, destination); // Same DPAPI/ACL/binding checks on every request.
+            using var client = new HttpClient(CreateHandler()) { Timeout = TimeSpan.FromSeconds(15) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            if (provider == SourceTokenProvider.GitHub) GitHubAccountDetector.SetHeaders(request);
+            else { request.Headers.UserAgent.ParseAdd("DeploymentPortal/1.0"); request.Headers.Accept.ParseAdd("application/json"); }
+            var token = Encoding.ASCII.GetString(secret);
+            request.Headers.Authorization = provider == SourceTokenProvider.GitHub ? new AuthenticationHeaderValue("Bearer", token)
+                : new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes(":" + token)));
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            return await SourceApiResponse.ParseAsync(response, token, timeout.Token);
+        }
+        catch (SourceExplorerException) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch { throw new SourceExplorerException(SourceExplorerException.Unavailable); }
         finally { if (secret is not null) CryptographicOperations.ZeroMemory(secret); }
     }
 }

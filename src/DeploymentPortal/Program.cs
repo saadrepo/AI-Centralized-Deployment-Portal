@@ -39,6 +39,8 @@ builder.Services.AddScoped<IWinRmService, WinRmService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<ISourceCredentialProvider, SourceCredentialProvider>();
 builder.Services.AddScoped<ISourceCredentialMetadata, SourceCredentialProvider>();
+builder.Services.AddScoped<ISourceApiReader, SourceCredentialProvider>();
+builder.Services.AddScoped<ICloudBuildExplorer, CloudBuildExplorer>();
 builder.Services.AddSingleton<IGitHubAccountDetector>(_ => new GitHubAccountDetector(
     new HttpClient(SourceCredentialProvider.CreateHandler()) { Timeout = TimeSpan.FromSeconds(10) }));
 builder.Services.AddScoped<IInfrastructureSourceProbe, InfrastructureSourceProbe>();

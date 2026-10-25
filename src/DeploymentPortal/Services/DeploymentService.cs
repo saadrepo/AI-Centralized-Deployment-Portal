@@ -18,7 +18,7 @@ public interface IDeploymentService
     Task<Guid> QueueAsync(DeploymentForm form);
     Task ExecuteAsync(Deployment deployment);
 }
-public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptions> options, IDataProtectionProvider protection, IWinRmService winRm, ICredentialProvider credentials, IPowerShellService powerShell, ICdDeploymentFlow? cd = null) : IDeploymentService
+public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptions> options, IDataProtectionProvider protection, IWinRmService winRm, ICredentialProvider credentials, IPowerShellService powerShell, ICdDeploymentFlow? cd = null, ICloudDeploymentGuard? cloud = null, ILogger<DeploymentService>? logger = null) : IDeploymentService
 {
     private readonly IDataProtector protector = protection.CreateProtector("DeploymentConfirmation.v2");
     private record Confirmation(Guid Id, DateTimeOffset Expires, string Request, string Server, string State, string Mode, string? CdDigest = null);
@@ -44,6 +44,7 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
         var server = await db.Servers.FindAsync(form.ServerId) ?? throw new ArgumentException("Select an existing server.");
         if (server.Environment != form.Environment) throw new ArgumentException("Deployment environment must match the selected server.");
         if (form.PreparationId.HasValue && cd is null) throw new ArgumentException("CD integration is unavailable.");
+        if (form.PreparationId is null) cloud?.ValidateManualPaths(form.SourcePath, form.TargetPath);
         if (cd is not null) await cd.ValidateAsync(form, server);
         return server;
     }
@@ -106,6 +107,9 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
     }
     public async Task ExecuteAsync(Deployment deployment)
     {
+        if (deployment.DeploymentMode == CloudExecutionFlow.Mode) { await ExecuteCloudAsync(deployment); return; }
+        if (deployment.Status is DeploymentStatus.CloudQueued or DeploymentStatus.CloudRunning)
+            throw new InvalidOperationException("Cloud worker status requires CloudUpdate mode; execution blocked.");
         deployment.Status = DeploymentStatus.Running; deployment.StartedAt = DateTimeOffset.UtcNow;
         deployment.ResultMessage = "Checking connectivity and preparing deployment.";
         if (deployment.CdSource is not null) CdDeploymentFlow.Audit(deployment.CdSource, "Running", "Worker started; revalidating protected provenance and target identity.");
@@ -116,7 +120,7 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
             if (deployment.Environment != deployment.Server.Environment) throw new ArgumentException("The server environment changed. Create a new deployment.");
             if (deployment.CdSource is not null)
                 deployment.CdPackage = cd is null ? throw new ArgumentException("CD execution integration is unavailable.") : await cd.LoadForExecutionAsync(deployment);
-            else cd?.ValidateManualPaths(deployment.SourcePath, deployment.TargetPath);
+            else { cloud?.ValidateManualPaths(deployment.SourcePath, deployment.TargetPath); cd?.ValidateManualPaths(deployment.SourcePath, deployment.TargetPath); }
             var connection = await winRm.TestConnectionAsync(deployment.Server);
             deployment.Server.LastCheckedAt = connection.Timestamp;
             deployment.Server.LastConnectionStatus = connection.Success ? ConnectionStatus.Online : ConnectionStatus.Offline;
@@ -140,5 +144,35 @@ public class DeploymentService(ApplicationDbContext db, IOptions<AutomationOptio
         deployment.CompletedAt = DateTimeOffset.UtcNow;
         if (deployment.CdSource is not null) CdDeploymentFlow.Audit(deployment.CdSource, deployment.Status.ToString(), deployment.ResultMessage);
         await db.SaveChangesAsync();
+    }
+
+    private async Task ExecuteCloudAsync(Deployment deployment)
+    {
+        var lifecycle = new CloudExecutionLifecycle(db, logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DeploymentService>.Instance);
+        if (deployment.Status is DeploymentStatus.Queued or DeploymentStatus.Running) {
+            deployment.Status = DeploymentStatus.Failed;
+            deployment.ResultMessage = "Legacy cloud queue protocol rejected. Operator inspection required; no remote operation was started.";
+            await lifecycle.CompleteAsync(deployment); return;
+        }
+        if (deployment.Status != DeploymentStatus.CloudQueued) return;
+        try {
+            DeploymentPaths.Validate(deployment.SourcePath, deployment.TargetPath, options.Value);
+            if (deployment.Environment != deployment.Server.Environment) throw new ArgumentException("The server environment changed.");
+            deployment.CdPackage = cloud is null ? throw new CloudExecutionException("CLOUD_GUARD_REQUIRED") : await cloud.LoadForExecutionAsync(deployment);
+            await lifecycle.BeginAsync(deployment);
+            var connection = await winRm.TestConnectionAsync(deployment.Server);
+            if (!connection.Success) { deployment.Status = DeploymentStatus.Failed; deployment.ResultMessage = connection.Message; }
+            else {
+                var result = await powerShell.ExecuteAsync(RemoteOperation.Deploy, deployment.Server, await credentials.GetAsync(deployment.Server), deployment);
+                deployment.Status = result.Success && result.Verified && !string.IsNullOrWhiteSpace(result.Verification) && result.HealthHttpStatus == 200
+                    ? DeploymentStatus.Successful : DeploymentStatus.Failed;
+                deployment.ResultMessage = result.Message;
+            }
+        }
+        catch {
+            deployment.Status = DeploymentStatus.Failed;
+            deployment.ResultMessage = "Cloud execution blocked or unconfirmed. Inspect target, approval and retained backup before any retry.";
+        }
+        await lifecycle.CompleteAsync(deployment);
     }
 }

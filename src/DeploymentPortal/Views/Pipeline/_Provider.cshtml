@@ -1,0 +1,21 @@
+@model string
+@{ var names = new[] { (Id: "Tfs2018", Name: "TFS", Icon: "tfs-server"), (Id: "GitHub", Name: "GitHub", Icon: "github"), (Id: "AzureDevOps", Name: "Azure DevOps", Icon: "azuredevops") }; var selected = names.Single(p => p.Id == Model); }
+<div class="pipeline-provider" id="pipeline-provider-widget">
+    <label id="pipeline-provider-label" for="pipeline-provider">Source Provider</label>
+    <select id="pipeline-provider" aria-labelledby="pipeline-provider-label" data-url="@Url.Action("Index", "Pipeline")">
+        <option value="Tfs2018" selected="@(Model == "Tfs2018")">TFS</option>
+        <option value="GitHub" selected="@(Model == "GitHub")">GitHub</option>
+        <option value="AzureDevOps" selected="@(Model == "AzureDevOps")">Azure DevOps</option>
+    </select>
+    <button id="pipeline-provider-trigger" class="pipeline-provider-trigger" type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="pipeline-provider-list" aria-labelledby="pipeline-provider-label pipeline-provider-name" hidden>
+        <img src="~/icons/providers/@(selected.Icon).svg" asp-append-version="true" alt="" width="22" height="22" />
+        <span id="pipeline-provider-name">@selected.Name</span><span class="pipeline-provider-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div id="pipeline-provider-list" class="pipeline-provider-list" role="listbox" aria-labelledby="pipeline-provider-label" hidden>
+        @foreach (var provider in names) {
+            <div id="provider-option-@provider.Id" class="pipeline-provider-option" role="option" data-value="@provider.Id" aria-selected="@(provider.Id == Model ? "true" : "false")">
+                <img src="~/icons/providers/@(provider.Icon).svg" asp-append-version="true" alt="" width="22" height="22" /><span>@provider.Name</span>
+            </div>
+        }
+    </div>
+</div>

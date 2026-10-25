@@ -4,12 +4,16 @@ using Microsoft.EntityFrameworkCore;
 namespace DeploymentPortal.Data;
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : DbContext(options)
 {
+    public DbSet<CloudExecutionRecord> CloudExecutions => Set<CloudExecutionRecord>();
     public DbSet<Server> Servers => Set<Server>();
     public DbSet<InfrastructureSource> InfrastructureSources => Set<InfrastructureSource>();
     public DbSet<Deployment> Deployments => Set<Deployment>();
     public DbSet<CdDeploymentSource> CdDeploymentSources => Set<CdDeploymentSource>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<CloudExecutionRecord>().HasIndex(x => x.UniqueScope).IsUnique().HasFilter("[UniqueScope] IS NOT NULL");
+        modelBuilder.Entity<CloudExecutionRecord>().HasIndex(x => x.DeploymentId).IsUnique().HasFilter("[DeploymentId] IS NOT NULL");
+        modelBuilder.Entity<CloudExecutionRecord>().Property(x => x.RowVersion).IsRowVersion();
         modelBuilder.Entity<InfrastructureSource>().Property(x => x.Provider).HasConversion<string>().HasMaxLength(20);
         modelBuilder.Entity<InfrastructureSource>().HasIndex(x => new { x.Provider, x.Destination }).IsUnique();
         modelBuilder.Entity<Server>().Property(x => x.LastConnectionStatus).HasConversion<string>().HasMaxLength(20);

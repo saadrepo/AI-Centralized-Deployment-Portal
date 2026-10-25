@@ -12,8 +12,9 @@ $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$Ap
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')","[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 $source = $source.Replace("`$keyRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'DeploymentPortal\DataProtectionKeys'","`$keyRoot = '$keyFixture'")
 $source = $source.Replace("'C:\DeploymentPortalData\CdStaging'","'$cdFixture'")
-# Test-only equivalent owner/DACL persistence and restricted-token identity.
+# Use the equivalent owner/DACL API without requesting audit privileges.
 $source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+# Adapt the synthetic SYSTEM role for restricted Windows test tokens only.
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $initialize = [scriptblock]::Create($source)
 try {

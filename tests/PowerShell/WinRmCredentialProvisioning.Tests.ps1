@@ -14,8 +14,9 @@ $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$Ap
 # The test user stands in for the provisioning administrator, without elevating.
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')", "[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 $source = $source.Replace("throw 'Credential provisioning failed. Verify administrator rights, the IIS pool identity and private store permissions. No password details are reported.'", 'throw $_') # Synthetic test diagnostics only.
-# Test-only equivalent owner/DACL persistence and restricted-token identity.
+# Use the equivalent owner/DACL API without requesting audit privileges.
 $source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+# Adapt the synthetic SYSTEM role for restricted Windows test tokens only.
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $provision = [scriptblock]::Create($source)
 $global:PromptCount = 0

@@ -41,6 +41,14 @@ builder.Services.AddScoped<ISourceCredentialProvider, SourceCredentialProvider>(
 builder.Services.AddScoped<ISourceCredentialMetadata, SourceCredentialProvider>();
 builder.Services.AddScoped<ISourceApiReader, SourceCredentialProvider>();
 builder.Services.AddScoped<ICloudBuildExplorer, CloudBuildExplorer>();
+// Default-off cloud execution; separate live authorization and explicit mappings are required.
+builder.Services.AddOptions<CloudExecutionOptions>().BindConfiguration("CloudExecution");
+builder.Services.AddScoped<ICloudProviderTransport, SourceCredentialProvider>();
+builder.Services.AddScoped<ICloudProvider, CloudExecutionProvider>();
+builder.Services.AddScoped<ICloudPackageStager, CloudPackageStager>();
+builder.Services.AddScoped<CloudExecutionFlow>();
+builder.Services.AddScoped<ICloudDeploymentGuard>(s => s.GetRequiredService<CloudExecutionFlow>());
+
 builder.Services.AddSingleton<IGitHubAccountDetector>(_ => new GitHubAccountDetector(
     new HttpClient(SourceCredentialProvider.CreateHandler()) { Timeout = TimeSpan.FromSeconds(10) }));
 builder.Services.AddScoped<IInfrastructureSourceProbe, InfrastructureSourceProbe>();
@@ -96,6 +104,7 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseRouting();
+app.UseMiddleware<CloudDenialAuditMiddleware>();
 
 app.UseLocalWindowsAuthentication(app.Environment);
 app.UseAuthorization();

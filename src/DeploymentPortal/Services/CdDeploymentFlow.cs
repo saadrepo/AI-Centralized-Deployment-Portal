@@ -78,7 +78,7 @@ public sealed class CdDeploymentFlow(ApplicationDbContext db, ITfsCdPreparation 
         db.CdDeploymentSources.Add(row);
         await db.SaveChangesAsync();
     }
-    private static void ValidateRemoteManifest(RemoteResult result)
+    public static void ValidateRemoteManifest(RemoteResult result)
     {
         try
         {

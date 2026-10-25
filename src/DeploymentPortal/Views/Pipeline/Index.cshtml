@@ -2,6 +2,7 @@
 @section Styles { <link rel="stylesheet" href="~/css/pipeline.css" asp-append-version="true" /> }
 <div class="pipeline-page" id="pipeline" data-base="@Url.Action("Index", "Pipeline")">
     <header class="pipeline-heading"><h1>CI/CD Pipeline</h1><p>Run build and deployment from one place.</p></header>
+    <partial name="_Provider" model='@("Tfs2018")' />
     @Html.AntiForgeryToken()
     <div id="pipeline-message" class="pipeline-message" role="status" aria-live="polite">Connecting to TFS…</div>
     <section class="pipeline-filters" aria-label="Pipeline selection">
@@ -48,4 +49,4 @@
         <section class="pipeline-card"><header><h2><partial name="_Icon" model='@("clock")' /> Recent Activity</h2></header><div id="pipeline-activity" class="pipeline-activity">No TFS activity loaded.</div></section>
     </div>
 </div>
-@section Scripts { <script src="~/js/pipeline.js" asp-append-version="true"></script> }
+@section Scripts { <script src="~/js/pipeline-provider.js" asp-append-version="true"></script> <script src="~/js/pipeline.js" asp-append-version="true"></script> }

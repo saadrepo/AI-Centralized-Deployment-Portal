@@ -1,6 +1,6 @@
 # Synthetic, unprivileged fixture with isolated paths, test identities and an
-# owner/DACL API without audit privileges. Actual provisioning, DPAPI, secure
-# prompting and ACL validation still run.
+# owner/DACL persistence API that does not request audit privileges. Actual
+# provisioning, DPAPI, secure prompting and ACL validation still run.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 . (Join-Path $PSScriptRoot 'ProvisioningFixture.ps1')
@@ -13,8 +13,9 @@ $source = $source.Replace("`$root = Join-Path ([Environment]::GetFolderPath('Com
 $source = $source.Replace('([Security.Principal.NTAccount]::new("IIS AppPool\$AppPoolName")).Translate([Security.Principal.SecurityIdentifier])', "[Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-1001')")
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')", "[Security.Principal.SecurityIdentifier]::new('$currentSid')")
 $source = $source.Replace("throw 'TFS credential provisioning failed. Verify the approved collection, Windows username, administrator rights and IIS pool identity. No credential details are reported.'", 'throw $_')
-# Test-only equivalent owner/DACL persistence and restricted-token identity.
+# Use the equivalent owner/DACL API without requesting audit privileges.
 $source = $source.Replace('Set-Acl -LiteralPath', 'Set-ProvisioningFixtureAcl -LiteralPath')
+# Adapt the synthetic SYSTEM role for restricted Windows test tokens only.
 $source = $source.Replace("[Security.Principal.SecurityIdentifier]::new('S-1-5-18')", "[Security.Principal.SecurityIdentifier]::new('$($fixtureContext.SystemSid)')")
 $provision = [scriptblock]::Create($source)
 $global:TfsPromptCount = 0
